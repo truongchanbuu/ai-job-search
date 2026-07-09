@@ -1,8 +1,8 @@
 # CI for the framework itself: LaTeX smoke compiles, skill/command lint,
 # CLI typechecks, and (upstream only) placeholder integrity.
 #
-# Fork-friendly by design: forks personalize CLAUDE.md, the skill files, and
-# cv/main_example.tex via /setup, so the placeholder-integrity job and the
+# Fork-friendly by design: forks personalize AGENTS.md/CLAUDE.md, the skill files, and
+# cv/main_example.tex via job-setup or /setup, so the placeholder-integrity job and the
 # exact page-count assertions run only on the upstream template repo. Compile
 # success and lint correctness are asserted everywhere.
 #
@@ -11,10 +11,10 @@
 # only per its own ToS warning - CI-automated requests would violate that).
 # CLIs get typechecked instead; live testing stays a local, on-demand step.
 #
-# Security posture: this template ships pre-approved Claude Code permissions
+# Security posture: this template ships Codex skills, Claude compatibility permissions,
 # and CLI code that every fork user executes, so the security-guards job
 # fails PRs that widen settings.json permissions, weaken the personal-data
-# gitignore rules, or add package lifecycle scripts; dependency-review flags
+# gitignore rules, break Codex skill guardrails, or add package lifecycle scripts; dependency-review flags
 # newly introduced vulnerable/malicious dependencies. Honest limit: a PR can
 # edit this workflow itself, so these guards catch accidents and casual
 # attempts, not a determined author - branch protection with required checks
@@ -155,6 +155,7 @@ jobs:
               fail=1
             fi
           }
+          check AGENTS.md 'agent-guidance/project-guide.md'
           check CLAUDE.md '\[YOUR_NAME\]'
           check cv/main_example.tex '\[YOUR_NAME\]'
           check cover_letters/cover_example.tex '\[YOUR NAME\]'

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Lint the repo's skill, command, and settings files.
+"""Lint the repo's skill, command, settings, and guide files.
 
 Run from anywhere: python tools/lint_skills.py
 
 Checks:
-- Every SKILL.md (.claude/skills/*, .agents/skills/*) has YAML frontmatter that
-  parses, with non-empty `name` and `description` keys
+- Every SKILL.md under .claude/skills/* and .agents/skills/* has YAML
+  frontmatter with non-empty name and description keys.
 - `allowed-tools` entries of the form `Bash(bun run <path> *)` point at files
-  that exist (skill paths resolve relative to the repo root and to .agents/)
-- Every .claude/commands/*.md starts with a `# /<name>` title
-- .claude/settings.json is valid JSON with a permissions.allow list
-
-Exit code 0 on success, 1 with a failure list otherwise.
+  that exist.
+- Every .claude/commands/*.md starts with a `# /<name>` title.
+- .claude/settings.json remains valid for Claude compatibility.
+- guide.md lists every Codex skill from .agents/skills/*/SKILL.md.
 """
 
 import json
@@ -32,23 +31,30 @@ def rel(path: Path) -> str:
     return str(path.relative_to(ROOT))
 
 
-def check_skill(path: Path) -> None:
+def read_frontmatter(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
         errors.append(f"{rel(path)}: missing YAML frontmatter (file must start with ---)")
-        return
+        return {}
     end = text.find("\n---", 4)
     if end == -1:
         errors.append(f"{rel(path)}: unterminated YAML frontmatter")
-        return
+        return {}
     try:
         data = yaml.safe_load(text[4:end])
     except yaml.YAMLError as exc:
         errors.append(f"{rel(path)}: frontmatter is not valid YAML: {exc}")
-        return
+        return {}
     if not isinstance(data, dict):
         errors.append(f"{rel(path)}: frontmatter did not parse to a mapping")
-        return
+        return {}
+    return data
+
+
+def check_skill(path: Path) -> str | None:
+    data = read_frontmatter(path)
+    if not data:
+        return None
     for key in ("name", "description"):
         if not data.get(key):
             errors.append(f"{rel(path)}: frontmatter missing required key '{key}'")
@@ -59,8 +65,6 @@ def check_skill(path: Path) -> None:
             target = match.group(1).rstrip("*")
             if not target or target.endswith("/"):
                 continue
-            # Targets may contain globs (e.g. .agents/skills/*/cli/src/cli.ts);
-            # require at least one existing file to match.
             if "*" in target:
                 if not list(ROOT.glob(target)) and not list((ROOT / ".agents").glob(target)):
                     errors.append(f"{rel(path)}: allowed-tools glob matches no files: {target}")
@@ -68,6 +72,8 @@ def check_skill(path: Path) -> None:
                 candidates = [ROOT / target, ROOT / ".agents" / target]
                 if not any(c.is_file() for c in candidates):
                     errors.append(f"{rel(path)}: allowed-tools references a missing file: {target}")
+    name = data.get("name")
+    return str(name) if name else None
 
 
 def check_command(path: Path) -> None:
@@ -88,26 +94,52 @@ def check_settings() -> None:
         errors.append(".claude/settings.json: expected permissions.allow to be a list")
 
 
+def check_guide(codex_skill_names: list[str]) -> None:
+    path = ROOT / "guide.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"guide.md: unreadable: {exc}")
+        return
+    for name in sorted(codex_skill_names):
+        if f"`{name}`" not in text:
+            errors.append(f"guide.md: missing Codex skill entry `{name}`")
+
+
 def main() -> int:
-    skills = sorted(ROOT.glob(".claude/skills/*/SKILL.md")) + sorted(ROOT.glob(".agents/skills/*/SKILL.md"))
+    claude_skills = sorted(ROOT.glob(".claude/skills/*/SKILL.md"))
+    codex_skills = sorted(ROOT.glob(".agents/skills/*/SKILL.md"))
     commands = sorted((ROOT / ".claude" / "commands").glob("*.md"))
-    if not skills:
-        errors.append("no SKILL.md files found - glob roots are wrong or the tree moved")
+    if not codex_skills:
+        errors.append("no Codex SKILL.md files found under .agents/skills/")
+    if not claude_skills:
+        errors.append("no Claude compatibility SKILL.md files found under .claude/skills/")
     if not commands:
         errors.append("no command files found under .claude/commands/")
 
-    for skill in skills:
+    for skill in claude_skills:
         check_skill(skill)
+
+    codex_skill_names: list[str] = []
+    for skill in codex_skills:
+        name = check_skill(skill)
+        if name:
+            codex_skill_names.append(name)
+
     for command in commands:
         check_command(command)
     check_settings()
+    check_guide(codex_skill_names)
 
     if errors:
         print(f"lint_skills: {len(errors)} failure(s)")
         for err in errors:
             print(f"  - {err}")
         return 1
-    print(f"lint_skills: OK ({len(skills)} skills, {len(commands)} commands, settings.json)")
+    print(
+        f"lint_skills: OK ({len(codex_skills)} Codex skills, "
+        f"{len(claude_skills)} Claude skills, {len(commands)} commands, guide.md)"
+    )
     return 0
 
 

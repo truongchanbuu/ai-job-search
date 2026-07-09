@@ -4,11 +4,11 @@ Thanks for considering a contribution! This repo has a deliberate, narrow philos
 
 ## The one rule everything follows from
 
-**This repo is a universal template.** People fork it and adapt it to their own market, language, and profile. Upstream stays market-agnostic, person-agnostic, and Claude Code-native. The corollary: a contribution is judged by fit to this rule first, execution quality second. Well-built but off-policy still gets declined (kindly, with reasons).
+**This repo is a universal template.** People fork it and adapt it to their own market, language, and profile. Upstream stays market-agnostic, person-agnostic, Codex-native, and Claude-compatible. The corollary: a contribution is judged by fit to this rule first, execution quality second. Well-built but off-policy still gets declined (kindly, with reasons).
 
 ## What gets merged
 
-- **Universal customization features**: anything that makes the fork-and-adapt path better for everyone. Precedent: `/add-template` (#30), `/add-portal` (#37).
+- **Universal customization features**: anything that makes the fork-and-adapt path better for everyone. Precedent: `/add-template` (#30), `/add-portal` (#37), now exposed as `$job-add-template` and `$job-add-portal` for Codex.
 - **Robustness and correctness fixes** with the failing case demonstrated. Precedent: NaN flag validation (#35), HTML entity decoding (#55, #56), salary column detection (#64).
 - **Docs that close real gaps**: platform-specific setup (#41, #60), stale references (#36, #68).
 - **Infrastructure that reduces review burden** and is argued from evidence, not speculation. Precedent: CI (#59), which caught a latent bug while being built.
@@ -17,13 +17,13 @@ Thanks for considering a contribution! This repo has a deliberate, narrow philos
 
 - **Market- or country-specific skills and content.** One country's portal opens the door to every country's portal; there is no principled stopping point. Precedent: #31 (India), #39 (France, despite an honest and excellent PR), #67 (China). The in-tree portal skills are either country-agnostic (`linkedin-search`) or the maintainer's own demonstration instance (the Danish portals).
 - **Personal profile data.** The template ships placeholders; your populated profile lives in your fork. CI enforces this (`placeholder-integrity`). Precedent: #17, #72.
-- **Alternative-harness ports and duplicate workflow sources.** The markdown specs ARE the implementation; a second copy (another agent CLI, an orchestration layer, a wrapper command) drifts from the first the moment either changes. Precedent: #44, #49, #66.
+- **Duplicate workflow sources.** Shared guidance in `agent-guidance/` is the canonical implementation. Codex skills and Claude commands are wrappers around that shared guidance, not separate workflow definitions.
 - **Speculative infrastructure.** Complexity must be argued from a problem that exists, not one that might. Precedent: #63.
 - **Kitchen-sink PRs.** One concern per PR. Bundles get asked to split (#73) - and splits get reviewed fast (#75, #76 arrived within the hour and were handled same-day).
 
 ## The bar for new commands
 
-The core lifecycle is **feature-complete**: `/setup` → `/scrape` → `/rank` → `/apply` → `/interview` → `/outcome` → calibration back into `/setup`, with `/expand`, `/upskill`, `/add-template`, `/add-portal`, and `/reset` around it. Every stage of a real job hunt has an owner.
+The core lifecycle is **feature-complete**: `$job-setup` -> `$job-scrape` -> `$job-rank` -> `$job-apply` -> `$job-interview` -> `$job-outcome` -> calibration back into `$job-setup`, with `$job-expand`, `$job-upskill`, `$job-add-template`, `$job-add-portal`, and `$job-reset` around it. Claude slash-command aliases remain documented in `guide.md`.
 
 A new command therefore faces a high bar. The test that admitted the existing ones: **does it operationalize something error-prone that already exists in the framework** (documented machinery nothing executes, data something writes but nothing reads)? "Useful" and "possible" are not sufficient; the strongest proposals connect two things that already exist without modifying either (#43, #54).
 

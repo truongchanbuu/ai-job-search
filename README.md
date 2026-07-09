@@ -6,9 +6,9 @@
 
 [![CI](https://github.com/MadsLorentzen/ai-job-search/actions/workflows/ci.yml/badge.svg)](https://github.com/MadsLorentzen/ai-job-search/actions/workflows/ci.yml)
 
-An AI-powered job application framework built on [Claude Code](https://claude.com/claude-code). Fork it, fill in your profile, and let Claude evaluate job postings, tailor your CV, write cover letters, and prepare you for interviews.
+An AI-powered job application framework with Codex-native skills and Claude Code compatibility. Fork it, fill in your profile, and let an agent evaluate job postings, tailor your CV, write cover letters, and prepare you for interviews.
 
-> Note: This is an independent open-source project and is not affiliated with, endorsed by, sponsored by, or maintained by Anthropic. Anthropic and Claude Code are referenced only to describe the toolchain this workflow uses.
+> Note: This is an independent open-source project and is not affiliated with, endorsed by, sponsored by, or maintained by OpenAI or Anthropic. Product names are referenced only to describe supported toolchains.
 
 <p align="center">
   <i>Did this save you a Sunday of cover-letter writing? Consider a coffee.<br>
@@ -23,10 +23,10 @@ An AI-powered job application framework built on [Claude Code](https://claude.co
 
 ## What this is
 
-A structured workflow that turns Claude Code into a full-stack job application assistant. The core workflow (self-profiling, fit evaluation, and the drafter-reviewer application pipeline) is **language- and country-agnostic**. The job portal search skills are built for the Danish market (Jobindex, Jobnet, Akademikernes Jobbank, etc.), but the pattern is designed to be swapped for your local job boards.
+A structured workflow that turns Codex into a full-stack job application assistant, while preserving the original Claude Code slash-command workflow. The core workflow (self-profiling, fit evaluation, and the drafter-reviewer application pipeline) is **language- and country-agnostic**. The job portal search skills are built for the Danish market (Jobindex, Jobnet, Akademikernes Jobbank, etc.), but the pattern is designed to be swapped for your local job boards.
 
 ```
-/setup          /scrape              /apply <url>
+$job-setup      $job-scrape          $job-apply <url>
   |                |                     |
   v                v                     v
 Fill in        Search job           Evaluate fit
@@ -38,14 +38,15 @@ files ready    with fit ratings     (LaTeX, tailored)
                    |                     |
                    v                     v
                Pick a match         Reviewer agent critiques
-               -> /apply            -> Revise -> Final output
+               -> $job-apply        -> Revise -> Final output
 ```
 
 The framework encodes career guidance best practices, including structured evaluation criteria, forward-looking cover letter framing, and optional salary benchmarking.
 
 ## Prerequisites
 
-- [Claude Code](https://claude.com/claude-code) (CLI)
+- Codex (primary agent interface)
+- Optional: [Claude Code](https://claude.com/claude-code) for compatibility with legacy slash commands
 - Python 3.10+
 - [Bun](https://bun.sh) (for Danish job search CLI tools)
 - LaTeX distribution with `lualatex` and `xelatex`: [TeX Live](https://tug.org/texlive/), [MacTeX](https://tug.org/mactex/), [TinyTeX](https://yihui.org/tinytex/), or [MiKTeX](https://miktex.org/). The CV compiles with `lualatex` (pdflatex often fails on modern MiKTeX installs with `fontawesome5` font-expansion errors); the cover letter compiles with `xelatex` because `cover.cls` requires `fontspec`. If using a minimal TeX install such as TinyTeX or BasicTeX, install the extra packages listed in [SETUP.md](SETUP.md#minimal-tex-install-tinytexbasictex).
@@ -88,38 +89,40 @@ For `linkedin-search` the install is optional: it has zero runtime dependencies 
 ### 3. Set up your profile
 
 ```bash
-claude
-# Then inside Claude Code:
-/setup
+codex
+# Then ask Codex to use:
+$job-setup
 ```
 
-`/setup` offers three paths: read your `documents/` folder if you have one populated (CV PDF, LinkedIn export, diplomas, reference letters, past applications), import a single CV pasted in chat, or walk through an interview. It auto-detects what you have and asks. Documents-folder mode is idempotent and safe to re-run as you add more material; see `documents/README.md` for the layout.
+`$job-setup` offers three paths: read your `documents/` folder if you have one populated (CV PDF, LinkedIn export, diplomas, reference letters, past applications), import a single CV pasted in chat, or walk through an interview. It auto-detects what you have and asks. Documents-folder mode is idempotent and safe to re-run as you add more material; see `documents/README.md` for the layout.
 
 ### 4. Search for jobs
 
 ```bash
-/scrape
+$job-scrape
 ```
 
-This searches multiple job portals for positions matching your profile, deduplicates results, and presents them sorted by fit. Pick a match to run `/apply` on it directly — or, when a scrape returns more jobs than you want to eyeball, run `/rank` to batch-score them all against the fit framework and get a ranked shortlist first.
+This searches multiple job portals for positions matching your profile, deduplicates results, and presents them sorted by fit. Pick a match to run `$job-apply` on it directly, or use `$job-rank` to batch-score a large scrape result first.
 
 ### 5. Apply to a job
 
 ```bash
-/apply https://jobindex.dk/job/1234567
+$job-apply https://jobindex.dk/job/1234567
 ```
 
 If the URL can't be fetched (some job portals block automated access), you can paste the job description directly instead:
 
 ```bash
-/apply <paste the full job description here>
+$job-apply <paste the full job description here>
 ```
 
 This runs the full workflow: evaluate fit, draft CV + cover letter, review with a second agent, revise, and present the final output.
 
 ## Other commands
 
-`/setup`, `/scrape`, and `/apply` form the core workflow. Seven more commands extend it once your profile is in place:
+`$job-setup`, `$job-scrape`, and `$job-apply` form the core workflow. See [guide.md](guide.md) for the full Codex skill catalog and legacy Claude command mapping.
+
+The legacy Claude commands remain available: `/setup`, `/scrape`, `/apply`, `/rank`, `/interview`, `/outcome`, `/expand`, `/upskill`, `/add-template`, `/add-portal`, and `/reset`.
 
 - **`/interview`** preps you for a scheduled interview on a tracked application. It builds a stage-specific prep pack from the application's archive (the exact posting, the CV and cover letter the interviewer actually read, feedback recorded from earlier rounds), researches the company and interviewers with a verify-before-use rule, maps likely questions to your STAR examples, and offers a mock interview following the roleplay protocol in `07-interview-prep.md`. Gaps get honest bridge answers, never invented experience.
 - **`/outcome`** records what happened to an application - interview stages, offers, rejections, silence. It archives the submitted CV, cover letter, and posting text into `documents/applications/<company>_<role>/`, keeps `outcome.md` in the format `/setup` Path A parses, and updates the tracker. Once a few applications resolve, it points you back to `/setup` to calibrate the fit framework from what actually got interviews.
@@ -132,6 +135,8 @@ This runs the full workflow: evaluate fit, draft CV + cover letter, review with 
 `/reset` is also available, see [Starting over](#starting-over) below.
 
 ## File structure
+
+Codex-native files are `AGENTS.md`, `guide.md`, `agent-guidance/`, and the `.agents/skills/job-*` workflow skills. Claude compatibility files remain under `.claude/`.
 
 ```
 ai-job-search/
