@@ -8,6 +8,12 @@
 
 **Input**: User description: "I wanna have some more features: support LinkedIn, VietnamWorks, TopCV, ITviec, Vieclam24h, Google Search, Facebook pages/groups; English and Vietnamese CVs; one default profile and job search related to main skills; ATS keyword checker; save application history; prepare interview questions from JD and experience from related posts."
 
+## Clarifications
+
+### Session 2026-07-13
+
+- Q: Should Google Search behave like the Google Jobs UI shown in the screenshot or stay as supplemental discovery for public job posting pages? → A: Google Search remains supplemental public-page discovery; main feature work should not focus on UI.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Find Relevant Jobs From Multiple Sources (Priority: P1)
@@ -154,7 +160,7 @@ A job seeker wants likely interview questions and answer prompts derived from th
 
 - The primary user is one job seeker using this workspace for their own applications.
 - "Facebook support" means user-configured pages or groups where the user is allowed to access public or available posts; private or restricted content is outside scope unless the user supplies the content.
-- Google Search is used as a discovery source for publicly available job pages and related interview-preparation context, not as a replacement for dedicated source records.
+- Google Search is used as a discovery source for publicly available job pages and related interview-preparation context, not as a replacement for dedicated source records or a Google Jobs-style UI.
 - The default profile is required before profile-driven search, ATS checking, CV tailoring, and interview preparation can produce high-quality results.
 - English and Vietnamese are the first supported CV and interview-prep languages for this feature.
 - Application history should extend the existing job-search tracking concept rather than replace prior saved records.

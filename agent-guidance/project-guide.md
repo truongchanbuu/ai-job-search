@@ -7,7 +7,7 @@ This repository is a job application workspace. Agents help the user evaluate jo
 - Evaluate job fit before drafting application material.
 - Tailor CVs in `cv/` and cover letters in `cover_letters/`.
 - Use the profile and reference guidance in `agent-guidance/job-application-assistant/`.
-- Search jobs using the Codex portal skills in `.agents/skills/*-search`.
+- Search jobs using the Codex portal skills in `.agents/skills/*-search`; use `google-search` as supplemental discovery for indexed career pages and ATS postings.
 - Keep personal outputs in gitignored locations such as `documents/applications/`, `job_search_tracker.csv`, generated CVs, and generated cover letters.
 
 ## Verification Rules

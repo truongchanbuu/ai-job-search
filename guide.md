@@ -24,6 +24,7 @@ This guide lists the skills available in this repository. Codex skills are the p
 | Skill | Purpose | When to Use | Legacy Claude Command |
 |---|---|---|---|
 | `freehire-search` | Search the freehire.dev tech-job aggregator across markets. | Use for software, data, engineering, DevOps, and remote tech roles. | None |
+| `google-search` | Generate targeted Google job-search links or search via Google Programmable Search API. | Use as a supplemental discovery source after portal skills, especially for company career pages and ATS postings. | None |
 | `linkedin-search` | Search public LinkedIn job listings by role and location. | Use for broad job searches in any market. | None |
 | `jobindex-search` | Search Jobindex.dk. | Use for Danish job listings. | None |
 | `jobnet-search` | Search Denmark's public Jobnet portal. | Use for Danish public job listings. | None |
