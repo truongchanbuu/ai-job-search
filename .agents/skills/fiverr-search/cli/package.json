@@ -1,0 +1,20 @@
+{
+  "name": "fiverr-search-cli",
+  "version": "1.0.0",
+  "description": "CLI for Fiverr marketplace discovery links and manual lead records.",
+  "type": "module",
+  "main": "src/cli.ts",
+  "bin": {
+    "fiverr-search": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "test": "bun test --timeout 30000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/bun": "latest"
+  }
+}

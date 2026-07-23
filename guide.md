@@ -18,6 +18,7 @@ This guide lists the skills available in this repository. Codex skills are the p
 | `job-add-portal` | Scaffold a search skill for a new job portal. | Use when adding a local or niche job board. | `/add-portal` |
 | `job-reset` | Reset profile or document state with confirmation. | Use when starting over or clearing personal data. | `/reset` |
 | `job-application-assistant` | Shared profile, writing, CV, cover-letter, evaluation, and interview guidance. | Use as reference material for job workflows. | `Skill(job-application-assistant)` |
+| `freelance-search` | Search, rank, evaluate, draft for, and track freelance opportunities. | Use for Fiverr, Upwork, Google/social freelance leads, proposal triage, and opportunity history. | None |
 
 ## Portal Search Skills
 
@@ -25,6 +26,8 @@ This guide lists the skills available in this repository. Codex skills are the p
 |---|---|---|---|
 | `freehire-search` | Search the freehire.dev tech-job aggregator across markets. | Use for software, data, engineering, DevOps, and remote tech roles. | None |
 | `google-search` | Generate targeted Google job-search links or search via Google Programmable Search API. | Use as a supplemental discovery source after portal skills, especially for company career pages and ATS postings. | None |
+| `upwork-search` | Generate Upwork discovery links and manual freelance lead records. | Use for Upwork freelance discovery with readiness and Connects caveats. | None |
+| `fiverr-search` | Generate Fiverr marketplace discovery links and manual freelance lead records. | Use for Fiverr gig/service discovery with seller profile readiness caveats. | None |
 | `linkedin-search` | Search public LinkedIn job listings by role and location. | Use for broad job searches in any market. | None |
 | `jobindex-search` | Search Jobindex.dk. | Use for Danish job listings. | None |
 | `jobnet-search` | Search Denmark's public Jobnet portal. | Use for Danish public job listings. | None |

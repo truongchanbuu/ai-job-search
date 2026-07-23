@@ -8,6 +8,7 @@ This repository is a job application workspace. Agents help the user evaluate jo
 - Tailor CVs in `cv/` and cover letters in `cover_letters/`.
 - Use the profile and reference guidance in `agent-guidance/job-application-assistant/`.
 - Search jobs using the Codex portal skills in `.agents/skills/*-search`; use `google-search` as supplemental discovery for indexed career pages and ATS postings.
+- Search freelance opportunities using `freelance-search`, `upwork-search`, `fiverr-search`, and verification-required Google/social discovery when the user wants contract or gig work.
 - Keep personal outputs in gitignored locations such as `documents/applications/`, `job_search_tracker.csv`, generated CVs, and generated cover letters.
 
 ## Verification Rules
@@ -18,6 +19,7 @@ This repository is a job application workspace. Agents help the user evaluate jo
 - Generated PDFs must be visually inspected before delivery.
 - If `pdftotext` is available, check CV text extraction for ATS readability.
 - Do not fabricate skills, job requirements, postings, company facts, or study resources.
+- Do not fabricate freelancer platform ratings, earnings, client facts, project details, or availability.
 
 ## Dual Support
 
