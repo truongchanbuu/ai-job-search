@@ -1,0 +1,15 @@
+{
+  "name": "itviec-search-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/cli.ts",
+  "bin": { "itviec-search": "src/cli.ts" },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "test": "bun test --timeout 30000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": { "@types/bun": "latest", "typescript": "^5.4.0" }
+}

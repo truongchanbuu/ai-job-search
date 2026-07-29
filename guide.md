@@ -29,6 +29,11 @@ This guide lists the skills available in this repository. Codex skills are the p
 | `upwork-search` | Generate Upwork discovery links and manual freelance lead records. | Use for Upwork freelance discovery with readiness and Connects caveats. | None |
 | `fiverr-search` | Generate Fiverr marketplace discovery links and manual freelance lead records. | Use for Fiverr gig/service discovery with seller profile readiness caveats. | None |
 | `linkedin-search` | Search public LinkedIn job listings by role and location. | Use for broad job searches in any market. | None |
+| `careerviet-search` | Generate official CareerViet manual-review searches. | Use for CareerViet coverage without unattended crawling. | None |
+| `vieclam24h-search` | Report Vieclam24h restricted/manual coverage. | Use when Vieclam24h must be included transparently. | None |
+| `topcv-search` | Search and verify low-volume public TopCV listings. | Use for public Vietnam job discovery on TopCV. | None |
+| `itviec-search` | Search and verify low-volume public ITviec listings. | Use for Vietnam technology roles on ITviec. | None |
+| `vietnamworks-search` | Report VietnamWorks restricted/manual coverage. | Use when VietnamWorks must be included transparently. | None |
 | `jobindex-search` | Search Jobindex.dk. | Use for Danish job listings. | None |
 | `jobnet-search` | Search Denmark's public Jobnet portal. | Use for Danish public job listings. | None |
 | `jobbank-search` | Search Akademikernes Jobbank. | Use for academic and highly educated roles in Denmark. | None |
