@@ -1,0 +1,62 @@
+[
+  {
+    "synthetic_job": "backend-1",
+    "action": "interested",
+    "reason_code": null,
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "backend-2",
+    "action": "interested",
+    "reason_code": null,
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "backend-3",
+    "action": "interested",
+    "reason_code": null,
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "backend-4",
+    "action": "interested",
+    "reason_code": null,
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "backend-5",
+    "action": "interested",
+    "reason_code": null,
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "budget-1",
+    "action": "skip",
+    "reason_code": "budget_too_low",
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "budget-2",
+    "action": "skip",
+    "reason_code": "budget_too_low",
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "budget-3",
+    "action": "skip",
+    "reason_code": "budget_too_low",
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "budget-4",
+    "action": "skip",
+    "reason_code": "budget_too_low",
+    "description": "Synthetic owner preference; not a real application outcome"
+  },
+  {
+    "synthetic_job": "budget-5",
+    "action": "skip",
+    "reason_code": "budget_too_low",
+    "description": "Synthetic owner preference; not a real application outcome"
+  }
+]

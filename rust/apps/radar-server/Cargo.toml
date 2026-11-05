@@ -1,0 +1,33 @@
+[package]
+name = "radar-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+radar-domain.workspace = true
+radar-application.workspace = true
+radar-adapters.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+tokio.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+serde.workspace = true
+sha2.workspace = true
+
+axum = "0.8"
+subtle = "2"
+
+[dev-dependencies]
+tempfile = "3"
+radar-tui = { path = "../radar-tui" }
+reqwest.workspace = true
+url.workspace = true
+ratatui = "0.29"
+crossterm = "0.28"
+async-trait = "0.1"
+ed25519-dalek = "2"
+hex = "0.4"

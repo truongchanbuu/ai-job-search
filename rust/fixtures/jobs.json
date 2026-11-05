@@ -1,0 +1,188 @@
+[
+  {
+    "provider": "mock",
+    "source_id": "api-1",
+    "url": "https://example.invalid/jobs/api-1",
+    "title": "Synthetic API debugging",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 40.0,
+      "currency": "USD"
+    },
+    "weekly_hours": 5,
+    "estimated_effort_hours": null,
+    "full_time_overlap": false,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "unknown-2",
+    "url": "https://example.invalid/jobs/unknown-2",
+    "title": "Synthetic integration, budget unknown",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": null,
+    "weekly_hours": 5,
+    "estimated_effort_hours": null,
+    "full_time_overlap": false,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": null,
+    "connects_cost": null,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "capacity-3",
+    "url": "https://example.invalid/jobs/capacity-3",
+    "title": "Synthetic full-time Rust role",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 40.0,
+      "currency": "USD"
+    },
+    "weekly_hours": 40,
+    "estimated_effort_hours": null,
+    "full_time_overlap": true,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "policy-4",
+    "url": "https://example.invalid/jobs/policy-4",
+    "title": "Synthetic unauthorized access request",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 40.0,
+      "currency": "USD"
+    },
+    "weekly_hours": 5,
+    "estimated_effort_hours": null,
+    "full_time_overlap": false,
+    "prohibited": true,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "incomplete-5",
+    "url": "https://example.invalid/jobs/incomplete-5",
+    "title": "Synthetic listing without full details",
+    "description": null,
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 40.0,
+      "currency": "USD"
+    },
+    "weekly_hours": 5,
+    "estimated_effort_hours": null,
+    "full_time_overlap": false,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": null,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "fixed-6",
+    "url": "https://example.invalid/jobs/fixed-6",
+    "title": "Synthetic small fixed-price repair",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "fixed",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 240,
+      "currency": "USD"
+    },
+    "weekly_hours": 5,
+    "estimated_effort_hours": 8,
+    "full_time_overlap": false,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  },
+  {
+    "provider": "mock",
+    "source_id": "api-1",
+    "url": "https://example.invalid/jobs/api-1",
+    "title": "Synthetic API debugging",
+    "description": "Debug a Rust JSON endpoint and add a regression test.",
+    "category": "backend",
+    "job_type": "hourly",
+    "skills": [
+      "rust"
+    ],
+    "budget": {
+      "amount": 40.0,
+      "currency": "USD"
+    },
+    "weekly_hours": 5,
+    "estimated_effort_hours": null,
+    "full_time_overlap": false,
+    "prohibited": false,
+    "already_applied": false,
+    "excluded": false,
+    "deadline": null,
+    "scope_defined": true,
+    "client_history_good": true,
+    "connects_cost": 8,
+    "posted_at": "2026-10-29T10:00:00Z"
+  }
+]
