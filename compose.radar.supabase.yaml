@@ -1,0 +1,47 @@
+# Standalone backend using externally hosted PostgreSQL; do not merge with compose.radar.yaml.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.radar
+    environment:
+      RADAR_DATABASE_URL: ${RADAR_DATABASE_URL:?Set the Supabase PostgreSQL URL privately}
+      RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS: ${RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS:-30}
+      RADAR_API_TOKEN: ${RADAR_API_TOKEN:?Set a random RADAR_API_TOKEN}
+      RADAR_READ_ONLY_TOKEN: ${RADAR_READ_ONLY_TOKEN:-}
+      RADAR_ALLOW_INSECURE_HTTP: 'true'
+      RADAR_OPENAI_API_KEY: ${RADAR_OPENAI_API_KEY:-}
+      RADAR_UPWORK_STATE_DIR: /app/upwork-state
+      RADAR_UPWORK_ENCRYPTION_KEY: ${RADAR_UPWORK_ENCRYPTION_KEY:-}
+      RADAR_UPWORK_CLIENT_ID: ${RADAR_UPWORK_CLIENT_ID:-}
+      RADAR_UPWORK_CLIENT_METADATA_URL: ${RADAR_UPWORK_CLIENT_METADATA_URL:-}
+      RADAR_INTERACTION_ENCRYPTION_KEY: ${RADAR_INTERACTION_ENCRYPTION_KEY:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID:-}
+      DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      DISCORD_ALLOWED_USER_IDS: ${DISCORD_ALLOWED_USER_IDS:-}
+      DISCORD_ALLOWED_GUILD_IDS: ${DISCORD_ALLOWED_GUILD_IDS:-}
+      DISCORD_ALERT_CHANNEL_ID: ${DISCORD_ALERT_CHANNEL_ID:-}
+      DISCORD_DIGEST_CHANNEL_ID: ${DISCORD_DIGEST_CHANNEL_ID:-}
+      DISCORD_SECONDARY_BOT_TOKEN: ${DISCORD_SECONDARY_BOT_TOKEN:-}
+      DISCORD_SECONDARY_APPLICATION_ID: ${DISCORD_SECONDARY_APPLICATION_ID:-}
+      DISCORD_SECONDARY_PUBLIC_KEY: ${DISCORD_SECONDARY_PUBLIC_KEY:-}
+      DISCORD_SECONDARY_ALLOWED_USER_IDS: ${DISCORD_SECONDARY_ALLOWED_USER_IDS:-}
+      DISCORD_SECONDARY_ALLOWED_GUILD_IDS: ${DISCORD_SECONDARY_ALLOWED_GUILD_IDS:-}
+      DISCORD_SECONDARY_CHANNEL_ID: ${DISCORD_SECONDARY_CHANNEL_ID:-}
+    volumes:
+      - radar_upwork_state:/app/upwork-state
+    ports:
+      - '127.0.0.1:${RADAR_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:8080/health/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+volumes:
+  radar_upwork_state:

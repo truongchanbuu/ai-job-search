@@ -1,0 +1,185 @@
+# Operational defaults (not credentials). Values are examples you may edit.
+schema_version: 1
+app:
+  timezone: Asia/Ho_Chi_Minh
+  active_mode: employed
+  cloud_enabled: true
+
+modes:
+  employed:
+    weekly_freelance_hours: 10
+    schedule:
+      weekdays: [mon, tue, wed, thu, fri]
+      at: ["08:00", "19:30"]
+    max_source_requests_per_day: 10
+    max_jobs_processed_per_day: 20
+    max_deep_evaluations_per_day: 8
+  available:
+    weekly_freelance_hours: 25
+    schedule:
+      weekdays: [mon, tue, wed, thu, fri, sat]
+      at: ["09:00", "14:00", "19:30"]
+    max_source_requests_per_day: 20
+    max_jobs_processed_per_day: 40
+    max_deep_evaluations_per_day: 15
+  busy:
+    weekly_freelance_hours: 3
+    schedule:
+      weekdays: [wed, sat]
+      at: ["19:30"]
+    max_source_requests_per_day: 4
+    max_jobs_processed_per_day: 8
+    max_deep_evaluations_per_day: 2
+  paused:
+    weekly_freelance_hours: 0
+    schedule:
+      weekdays: []
+      at: []
+    max_source_requests_per_day: 0
+    max_jobs_processed_per_day: 0
+    max_deep_evaluations_per_day: 0
+
+job_sources:
+  mock:
+    enabled: true
+  manual:
+    enabled: true
+  upwork_mcp:
+    enabled: false # Opt in to manual searches after separate Radar OAuth login.
+    require_capability_check: true
+    runtime:
+      state_dir_env: RADAR_UPWORK_STATE_DIR
+      encryption_key_env: RADAR_UPWORK_ENCRYPTION_KEY
+      client_id_env: RADAR_UPWORK_CLIENT_ID
+      client_metadata_url_env: RADAR_UPWORK_CLIENT_METADATA_URL
+      request_timeout_seconds: 20
+      login_timeout_seconds: 300
+      callback_port: 8787
+      max_requests_per_minute: 6
+      max_requests_per_hour: 30
+      max_requests_per_day: 100
+      max_pages_per_scan: 3
+      max_results_per_scan: 20
+      retry_backoff_seconds: 30
+      default_profile: general
+      profiles:
+        general:
+          enabled: true
+          keywords: [rust]
+          skills: []
+          job_type: null
+          minimum_budget_usd: null
+          experience_levels: []
+          result_limit: 10
+
+ai:
+  provider: mock # or openai_responses; no Codex credential/session reuse
+  runtime:
+    evaluation_rubric: "Check verified technical fit, part-time delivery feasibility, compensation, scope, supported client risks and important unknowns. Prefer clarification over certainty."
+    enabled: false
+    model: "" # explicitly select a structured-output model before enabling the real provider
+    api_key_env: RADAR_OPENAI_API_KEY
+    max_evaluations_per_day: 8
+    max_proposals_per_day: 4
+    max_input_bytes: 65536
+    max_output_bytes: 32768
+    max_output_tokens: 4096
+    max_proposal_words: 250
+    reserved_cost_usd_per_call: 0.25
+    input_usd_per_million_tokens: null
+    output_usd_per_million_tokens: null
+  max_tasks_per_day: 8
+  timeout_seconds: 90
+  max_concurrent_tasks: 1
+  max_estimated_cost_usd_per_day: 2.0
+
+proposals:
+  templates:
+    default_id: null # Explicit selection in Job Details (T); may name an item below.
+    items:
+      - id: problem_first
+        name: Problem first
+        use_when: A clear technical deliverable with enough detail to propose a first step.
+        instructions: >-
+          Open directly with the client's stated problem or desired result in one sentence.
+          Give a concrete first action and how it will be checked. Add only the most relevant
+          verified shareable fact, with its true context. Close with one useful question or
+          next step; avoid repeating both. Aim for short natural paragraphs; never pad to a word target.
+          No self-introduction, praise, sales adjectives, invented diagnosis, price or timeline.
+        mock_approach: First clarify the failing behavior, implement the smallest useful change, and check it against the agreed acceptance criteria.
+        question: What observable result would make this first change complete?
+        max_words: 140
+        max_evidence: 1
+        max_questions: 1
+      - id: focused_repair
+        name: Focused bug fix
+        use_when: A reproducible bug, regression or failing endpoint.
+        instructions: >-
+          Name the reported symptom without pretending to know its root cause.
+          Describe reproducing it, tracing the failing path, applying a focused fix and checking
+          for regressions. Include one relevant verified example. Ask for the smallest useful
+          reproduction or expected-versus-actual behavior. Avoid speculative diagnoses and blanket rewrites.
+        mock_approach: Reproduce the reported failure, trace the failing path, make a focused correction, and verify the regression case.
+        question: Is there a minimal reproduction showing the expected and actual behavior?
+        max_words: 120
+        max_evidence: 1
+        max_questions: 1
+      - id: integration
+        name: API and system integration
+        use_when: Connecting systems, webhooks or data synchronization.
+        instructions: >-
+          Start with the data flow or business action the client needs to work reliably.
+          Propose checking the actual interface contract, authentication, field mapping and a
+          representative success/failure path. Discuss retries or duplicate handling only if
+          relevant to the brief. Cite one verified related integration fact. Ask one blocking
+          interface or acceptance question. Do not invent system capabilities or access permissions.
+        mock_approach: Confirm the interface contract and field mapping, connect the required flow, and test its success and failure paths.
+        question: Which data flow and failure case should the first working slice cover?
+        max_words: 140
+        max_evidence: 1
+        max_questions: 1
+      - id: salesforce_change
+        name: Salesforce scoped change
+        use_when: A concrete Salesforce customization, repair or integration within verified skills.
+        instructions: >-
+          Lead with the user's Salesforce workflow or reported behavior, not a stack inventory.
+          Describe checking the existing configuration/code, implementing the smallest justified
+          change and validating the affected user flow in a sandbox. Use only verified Salesforce
+          evidence; do not relabel an academic capstone as paid client work. Ask about expected
+          behavior or sandbox access without requesting credentials in a proposal.
+        mock_approach: Review the existing workflow, make the smallest justified change in a sandbox, and validate the affected user flow.
+        question: Which user flow and expected behavior should be verified first?
+        max_words: 140
+        max_evidence: 1
+        max_questions: 1
+      - id: clarify_scope
+        name: Clarify before committing
+        use_when: A plausible fit with missing deliverables or acceptance criteria.
+        instructions: >-
+          State the intended outcome using only known facts. Explain the narrow first step that
+          would reduce uncertainty. Include one relevant verified fact only when it supports
+          that step. Ask the most consequential unanswered question. Never invent scope,
+          imply an estimate is reliable, prescribe unpaid custom work or promise availability.
+        mock_approach: Clarify the required inputs and acceptance criteria before agreeing on a bounded first deliverable.
+        question: What deliverable and acceptance criteria would define a useful first milestone?
+        max_words: 120
+        max_evidence: 1
+        max_questions: 1
+  allow_auto_draft: false
+  allow_marketplace_writes: false
+  require_human_approval: true
+
+storage:
+  # Never put actual database passwords in config.
+  database_url_env: RADAR_DATABASE_URL
+
+# Only mock jobs are scheduled. Missed slots coalesce to the latest within this window.
+scheduler:
+  enabled: true
+  poll_interval_seconds: 2
+  max_jobs_per_run: 7
+  max_pending_runs: 10
+  ui_refresh_seconds: 5
+  recovery_after_seconds: 60
+  catch_up_minutes: 120
+  resume_mode: employed

@@ -1,0 +1,56 @@
+name: Radar Rust
+on:
+  push:
+    paths: ['rust/**', 'config/**', 'Dockerfile.radar', 'compose.radar*.yaml', '.dockerignore', '.github/workflows/radar.yml']
+  pull_request:
+    paths: ['rust/**', 'config/**', 'Dockerfile.radar', 'compose.radar*.yaml', '.dockerignore', '.github/workflows/radar.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-core-and-cloud:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: radar_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d radar_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      RADAR_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/radar_test
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: cargo +stable fmt --all -- --check
+      - run: cargo +stable clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo +stable test --locked --workspace -- --include-ignored
+      - name: Run synthetic demo with runtime filenames
+        run: |
+          radar_config_dir="$(mktemp -d)"
+          trap 'rm -rf "$radar_config_dir"' EXIT
+          for namespace in radar scoring notifications; do
+            cp "../config/$namespace.example.yaml" "$radar_config_dir/$namespace.yaml"
+          done
+          cargo +stable run --locked -p radar-server -- demo --config-dir "$radar_config_dir" --at 2026-10-30T12:00:00Z
+      - name: Validate deployment configuration
+        working-directory: .
+        env:
+          RADAR_DB_PASSWORD: synthetic-ci-validation-only
+          RADAR_API_TOKEN: synthetic-ci-validation-token-only
+        run: docker compose -f compose.radar.yaml -f compose.radar.dev.yaml config --quiet
+
+      - name: Validate external PostgreSQL deployment configuration
+        working-directory: .
+        env:
+          RADAR_DATABASE_URL: postgres://synthetic:synthetic@db.example.invalid:5432/postgres?sslmode=require
+          RADAR_API_TOKEN: synthetic-ci-validation-token-only
+        run: docker compose -f compose.radar.supabase.yaml config --quiet

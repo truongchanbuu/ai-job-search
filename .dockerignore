@@ -1,0 +1,11 @@
+**
+!rust/
+!rust/**
+rust/target/
+!config/
+!config/*.example.yaml
+!Dockerfile.radar
+rust/**/.env*
+rust/**/private/
+rust/**/*.db*
+rust/**/*.sqlite*

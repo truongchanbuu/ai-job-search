@@ -1,0 +1,24 @@
+FROM rust:1-bookworm AS builder
+WORKDIR /build
+COPY rust/ rust/
+WORKDIR /build/rust
+RUN cargo build --locked --release -p radar-server
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home radar
+WORKDIR /app
+RUN mkdir -p /app/upwork-state && chown radar:radar /app/upwork-state && chmod 700 /app/upwork-state
+COPY --from=builder /build/rust/target/release/radar-server /usr/local/bin/radar-server
+COPY config/radar.example.yaml /app/config/radar.yaml
+COPY config/scoring.example.yaml /app/config/scoring.yaml
+COPY config/notifications.example.yaml /app/config/notifications.yaml
+COPY rust/fixtures/profiles/ /app/demo-profiles/
+ENV RADAR_CONFIG_DIR=/app/config \
+    RADAR_PROFILE_DIR=/app/demo-profiles \
+    RADAR_BIND=0.0.0.0:8080
+USER radar
+EXPOSE 8080
+ENTRYPOINT ["radar-server"]
+CMD ["serve"]

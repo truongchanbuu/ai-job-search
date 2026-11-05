@@ -1,0 +1,5 @@
+# Optional override for a native cargo-run backend. Start only `db` with this file.
+services:
+  db:
+    ports:
+      - '127.0.0.1:5432:5432'

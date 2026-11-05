@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_DB: radar
+      POSTGRES_PASSWORD: ${RADAR_DB_PASSWORD:?Set RADAR_DB_PASSWORD in a private env file}
+    volumes:
+      - radar_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U radar -d radar']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.radar
+    environment:
+      RADAR_DATABASE_URL: postgres://radar:${RADAR_DB_PASSWORD:?Set RADAR_DB_PASSWORD}@db:5432/radar
+      RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS: ${RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS:-30}
+      RADAR_API_TOKEN: ${RADAR_API_TOKEN:?Set a random RADAR_API_TOKEN}
+      RADAR_READ_ONLY_TOKEN: ${RADAR_READ_ONLY_TOKEN:-}
+      RADAR_ALLOW_INSECURE_HTTP: 'true'
+      RADAR_OPENAI_API_KEY: ${RADAR_OPENAI_API_KEY:-}
+      RADAR_UPWORK_STATE_DIR: /app/upwork-state
+      RADAR_UPWORK_ENCRYPTION_KEY: ${RADAR_UPWORK_ENCRYPTION_KEY:-}
+      RADAR_UPWORK_CLIENT_ID: ${RADAR_UPWORK_CLIENT_ID:-}
+      RADAR_UPWORK_CLIENT_METADATA_URL: ${RADAR_UPWORK_CLIENT_METADATA_URL:-}
+      RADAR_INTERACTION_ENCRYPTION_KEY: ${RADAR_INTERACTION_ENCRYPTION_KEY:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID:-}
+      DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:-}
+      DISCORD_ALLOWED_USER_IDS: ${DISCORD_ALLOWED_USER_IDS:-}
+      DISCORD_ALLOWED_GUILD_IDS: ${DISCORD_ALLOWED_GUILD_IDS:-}
+      DISCORD_ALERT_CHANNEL_ID: ${DISCORD_ALERT_CHANNEL_ID:-}
+      DISCORD_DIGEST_CHANNEL_ID: ${DISCORD_DIGEST_CHANNEL_ID:-}
+      DISCORD_SECONDARY_BOT_TOKEN: ${DISCORD_SECONDARY_BOT_TOKEN:-}
+      DISCORD_SECONDARY_APPLICATION_ID: ${DISCORD_SECONDARY_APPLICATION_ID:-}
+      DISCORD_SECONDARY_PUBLIC_KEY: ${DISCORD_SECONDARY_PUBLIC_KEY:-}
+      DISCORD_SECONDARY_ALLOWED_USER_IDS: ${DISCORD_SECONDARY_ALLOWED_USER_IDS:-}
+      DISCORD_SECONDARY_ALLOWED_GUILD_IDS: ${DISCORD_SECONDARY_ALLOWED_GUILD_IDS:-}
+      DISCORD_SECONDARY_CHANNEL_ID: ${DISCORD_SECONDARY_CHANNEL_ID:-}
+    volumes:
+      - radar_upwork_state:/app/upwork-state
+    ports:
+      - '127.0.0.1:${RADAR_PORT:-8080}:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:8080/health/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+volumes:
+  radar_postgres:
+  radar_upwork_state:

@@ -1,0 +1,64 @@
+# Numerical scoring policy. Weights MUST total 100.
+schema_version: 1
+weights:
+  technical_fit: 25
+  verified_experience: 20
+  scope_clarity: 15
+  budget_effort_fit: 10
+  availability_fit: 15
+  client_risk: 5
+  personal_interest: 10
+
+thresholds:
+  shortlist_min_score: 75
+  instant_alert_min_score: 88
+  minimum_confidence_to_alert: medium
+
+hard_vetoes:
+  prohibited_or_unethical: true
+  requires_full_time_overlap: true
+  cannot_meet_required_deadline: true
+  outside_available_weekly_hours: true
+  already_applied: true
+
+uncertainty:
+  unknown_budget: flag
+  unknown_connects_cost: flag
+  unknown_client_history: flag
+  missing_full_description: needs_review
+
+personalization:
+  runtime:
+    enabled: false
+    max_adjustment: 8.0
+    max_feature_points: 4.0
+    prior_strength: 5.0
+    min_feature_samples: 3
+    max_feedback_events: 2000
+    max_ranked_jobs: 1000
+    backtest_max_events: 200
+    backtest_top_k: 5
+    half_life_days: null
+    training_window_days: null
+    small_effort_hours: 8
+    medium_effort_hours: 40
+    small_workload_hours: 10
+    allowed_technologies: [rust, python, typescript, javascript, sql, salesforce, apex, lwc, react, node.js, docker, postgresql]
+    allowed_categories: [backend, frontend, integrations, data, devops, automation]
+    action_weights:
+      interested: 0.5
+      save: 0.25
+      skip: -1.0
+      not_available: -0.5
+      applied: 0.75
+      interview: 1.25
+      hired: 2.0
+      completed: 2.5
+      rejected: 0.0
+      withdrawn: -0.5
+      other: 0.0
+    high_score_threshold: 80.0
+    low_score_threshold: 60.0
+  propose_weight_adjustments: true
+  require_approval_before_activation: true
+  min_feedback_samples_for_suggestion: 5

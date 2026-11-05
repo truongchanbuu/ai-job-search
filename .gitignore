@@ -72,3 +72,17 @@ upskill/*.md
 .agents/**/node_modules/
 .agents/**/*.log
 .agents/usage/
+
+# Personal Freelance Radar runtime data and build output
+/private/
+.env
+.env.*
+!.env.example
+/rust/target/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/radar-output/
+*.sqlite-*
+*.sqlite3-*

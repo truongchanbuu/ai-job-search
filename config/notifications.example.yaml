@@ -1,0 +1,71 @@
+# Provider adapters + destinations, not one hardcoded bot.
+schema_version: 1
+notifications:
+  enabled: true
+  timezone: Asia/Ho_Chi_Minh
+  quiet_hours:
+    start: "22:00"
+    end: "08:00"
+  max_alerts_per_day: 3
+  retry:
+    max_attempts: 4
+    base_delay_seconds: 30
+
+providers:
+  discord_primary:
+    type: discord
+    enabled: true
+    token_env: DISCORD_BOT_TOKEN
+    application_id_env: DISCORD_APPLICATION_ID
+    public_key_env: DISCORD_PUBLIC_KEY
+    allowed_user_ids_env: DISCORD_ALLOWED_USER_IDS
+    allowed_guild_ids_env: DISCORD_ALLOWED_GUILD_IDS
+  discord_secondary:
+    type: discord
+    enabled: false
+    token_env: DISCORD_SECONDARY_BOT_TOKEN
+    application_id_env: DISCORD_SECONDARY_APPLICATION_ID
+    public_key_env: DISCORD_SECONDARY_PUBLIC_KEY
+    allowed_user_ids_env: DISCORD_SECONDARY_ALLOWED_USER_IDS
+    allowed_guild_ids_env: DISCORD_SECONDARY_ALLOWED_GUILD_IDS
+
+destinations:
+  personal_alerts:
+    provider: discord_primary
+    channel_id_env: DISCORD_ALERT_CHANNEL_ID
+  nightly_digest:
+    provider: discord_primary
+    channel_id_env: DISCORD_DIGEST_CHANNEL_ID
+
+  secondary_alerts:
+    provider: discord_secondary
+    channel_id_env: DISCORD_SECONDARY_CHANNEL_ID
+
+routes:
+  job_matched:
+    destinations: [personal_alerts]
+    minimum_score: 88
+  daily_digest:
+    destinations: [nightly_digest]
+    at: "21:00"
+  scan_failed:
+    destinations: [personal_alerts]
+    severity: error
+
+interactions:
+  discord_enabled: true
+  commands: [status, jobs, scan, pause, resume, digest]
+  feedback_actions: [interested, save, skip]
+  never_allow_auto_submit: true
+
+# Operational defaults; tokens and the 32-byte hex encryption key stay in the environment.
+runtime:
+  request_timeout_seconds: 8
+  delivery_lease_seconds: 60
+  max_backoff_seconds: 3600
+  max_digest_jobs: 5
+  signature_max_age_seconds: 300
+  signature_future_skew_seconds: 10
+  acknowledgment_timeout_ms: 1500
+  interaction_ttl_seconds: 840
+  interaction_encryption_key_env: RADAR_INTERACTION_ENCRYPTION_KEY
