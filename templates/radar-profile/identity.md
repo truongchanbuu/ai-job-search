@@ -19,7 +19,7 @@ last_verified: YYYY-MM-DD
 
 ## Employment history
 
-[Exact role, dates and verifiable responsibilities; separate from training.] 
+[Exact role, dates and verifiable responsibilities; separate from training.]
 
 ## Education, languages, certifications
 
