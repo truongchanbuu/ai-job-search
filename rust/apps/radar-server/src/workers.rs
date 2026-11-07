@@ -5,6 +5,17 @@ use tokio::sync::watch;
 
 /// Injectable time and real ports make the entire worker pipeline testable without credentials.
 pub async fn tick(state: &AppState, now: DateTime<Utc>) -> Result<(), StoreError> {
+    let context = radar_adapters::database::Operation {
+        name: "background_tick".into(),
+        correlation: uuid::Uuid::new_v4(),
+        pool: state.repository.pool.clone(),
+        started: std::time::Instant::now(),
+    };
+    radar_adapters::database::OPERATION
+        .scope(context, tick_inner(state, now))
+        .await
+}
+async fn tick_inner(state: &AppState, now: DateTime<Utc>) -> Result<(), StoreError> {
     state.refresh_config().await?;
     sqlx::query("INSERT INTO worker_heartbeats(id,last_seen) VALUES ($1,$2) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen").bind(state.worker_id).bind(now).execute(&state.repository.pool).await?;
     state.repository.plan_scans(now).await?;
@@ -35,8 +46,9 @@ pub async fn run(state: AppState, mut shutdown: watch::Receiver<bool>) {
         if *shutdown.borrow() {
             break;
         }
-        if tick(&state, Utc::now()).await.is_err() {
-            eprintln!("radar: worker tick failed; durable state retained for recovery");
+        tokio::select! {
+            _=shutdown.changed()=>break,
+            result=tick(&state,Utc::now())=>if result.is_err(){eprintln!("radar: worker tick failed; durable state retained for recovery");},
         }
         let delay = state
             .config_cache
@@ -47,8 +59,11 @@ pub async fn run(state: AppState, mut shutdown: watch::Receiver<bool>) {
             .map_or(2, |s| s.poll_interval_seconds);
         tokio::select! {_=shutdown.changed()=>{},_=tokio::time::sleep(std::time::Duration::from_secs(delay))=>{}}
     }
-    let _ = sqlx::query("DELETE FROM worker_heartbeats WHERE id=$1")
-        .bind(state.worker_id)
-        .execute(&state.repository.pool)
-        .await;
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        sqlx::query("DELETE FROM worker_heartbeats WHERE id=$1")
+            .bind(state.worker_id)
+            .execute(&state.repository.pool),
+    )
+    .await;
 }

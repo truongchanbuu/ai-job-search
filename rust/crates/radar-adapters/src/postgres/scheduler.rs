@@ -27,7 +27,7 @@ impl PgRepository {
         if !["manual", "discord"].contains(&origin) {
             return Err(StoreError::Invalid("invalid scan origin".into()));
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("queue_scan").await?;
         let config = config_view(
             &sqlx::query("SELECT * FROM runtime_config WHERE singleton=true FOR UPDATE")
                 .fetch_one(&mut *tx)
@@ -61,7 +61,7 @@ impl PgRepository {
             ));
         }
         let row=sqlx::query("INSERT INTO scan_runs(id,run_key,origin,scheduled_at) VALUES ($1,$2,$3,$4) RETURNING *").bind(id).bind(format!("request:{id}")).bind(origin).bind(now).fetch_one(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "queue_scan").await?;
         run_view(&row)
     }
     pub async fn scheduler_status(&self, now: DateTime<Utc>) -> Result<SchedulerView> {
@@ -93,7 +93,7 @@ impl PgRepository {
         })
     }
     pub async fn plan_scans(&self, now: DateTime<Utc>) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("plan_scans").await?;
         if !coordination_lock(&mut tx).await? {
             return Ok(());
         }
@@ -141,16 +141,16 @@ impl PgRepository {
         .bind(config.revision)
         .execute(&mut *tx)
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "plan_scans").await?;
         Ok(())
     }
     /// Claim is committed independently so another process can recover an interrupted execution.
     pub async fn claim_scan(&self, now: DateTime<Utc>) -> Result<Option<(Uuid, Uuid)>> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("claim_scan").await?;
         if !coordination_lock(&mut tx).await? {
             return Ok(None);
         }
-        let config = self.config().await?;
+        let config = self.config_in(&mut tx).await?;
         let Some(settings) = config.effective.radar.scheduler else {
             return Ok(None);
         };
@@ -161,7 +161,7 @@ impl PgRepository {
         let owner = Uuid::new_v4();
         sqlx::query("UPDATE scan_runs SET status='running',owner=$2,lease_until=$3,started_at=$4,attempts=attempts+1,error=NULL WHERE id=$1")
             .bind(id).bind(owner).bind(now+chrono::Duration::seconds(settings.recovery_after_seconds as i64)).bind(now).execute(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "claim_scan").await?;
         Ok(Some((id, owner)))
     }
     pub async fn execute_scan(
@@ -182,7 +182,7 @@ impl PgRepository {
         now: DateTime<Utc>,
         gateway: &dyn crate::upwork::UpworkGateway,
     ) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("execute_scan_with_gateway").await?;
         if !coordination_lock(&mut tx).await? {
             return Ok(());
         }
@@ -194,7 +194,7 @@ impl PgRepository {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = row else { return Ok(()) };
-        let config = self.config().await?;
+        let config = self.config_in(&mut tx).await?;
         let is_upwork = row.try_get::<String, _>("source")? == "upwork";
         let limit = config
             .effective
@@ -290,7 +290,7 @@ impl PgRepository {
                 sqlx::query("UPDATE scan_runs SET status='failed',error=$3,completed_at=$2,lease_until=NULL WHERE id=$1").bind(id).bind(now).bind(diagnostic).execute(&mut *tx).await?;
             }
         }
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "execute_scan_with_gateway").await?;
         Ok(())
     }
     pub async fn run_scan_tick(&self, profile: &Profile, now: DateTime<Utc>) -> Result<()> {
@@ -301,7 +301,7 @@ impl PgRepository {
         Ok(())
     }
     pub async fn set_paused(&self, request: ModeRequest, actor: &str) -> Result<ConfigView> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("set_paused").await?;
         let current = config_view(
             &sqlx::query("SELECT * FROM runtime_config WHERE singleton=true FOR UPDATE")
                 .fetch_one(&mut *tx)
@@ -368,7 +368,7 @@ impl PgRepository {
             .bind(Json(&response))
             .execute(&mut *tx)
             .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "set_paused").await?;
         Ok(response)
     }
 }

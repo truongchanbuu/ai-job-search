@@ -46,6 +46,7 @@ pub enum StoreError {
 }
 impl From<sqlx::Error> for StoreError {
     fn from(error: sqlx::Error) -> Self {
+        crate::database::report_current(&error);
         if error
             .as_database_error()
             .is_some_and(|e| e.code().as_deref() == Some("23505"))
@@ -225,7 +226,7 @@ impl PgRepository {
     pub async fn initialize(&self, base: &Config) -> Result<()> {
         base.validate()
             .map_err(|e| StoreError::Invalid(e.to_string()))?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("initialize").await?;
         sqlx::query("SELECT pg_advisory_xact_lock(5732026)")
             .execute(&mut *tx)
             .await?;
@@ -266,8 +267,31 @@ impl PgRepository {
             }
             Some(_) => {}
         }
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "initialize").await?;
         Ok(())
+    }
+    pub(super) async fn config_in(&self, tx: &mut sqlx::PgConnection) -> Result<ConfigView> {
+        config_view(
+            &sqlx::query("SELECT * FROM runtime_config WHERE singleton=true")
+                .fetch_one(&mut *tx)
+                .await?,
+        )
+    }
+    pub(super) async fn job_in(&self, tx: &mut sqlx::PgConnection, id: Uuid) -> Result<JobView> {
+        let row = sqlx::query(&format!("SELECT {JOB_FIELDS} {JOB_FROM} WHERE j.id=$1"))
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        let mut job = job_view(&row)?;
+        if let Some(context) = self.ranking_context_on(tx).await? {
+            Self::apply_personalization(&mut job, &context);
+        }
+        Ok(job)
+    }
+    async fn begin(&self, operation: &str) -> Result<Transaction<'static, Postgres>> {
+        let connection = crate::database::acquire(&self.pool, operation).await?;
+        Ok(Transaction::begin(connection, None).await?)
     }
     pub async fn config(&self) -> Result<ConfigView> {
         config_view(
@@ -277,9 +301,9 @@ impl PgRepository {
         )
     }
     pub async fn update_config(&self, update: ConfigUpdate, actor: &str) -> Result<ConfigView> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("update_config").await?;
         let result = self.update_config_in(&mut tx, update, actor).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "update_config").await?;
         Ok(result)
     }
     async fn update_config_in(
@@ -380,8 +404,16 @@ impl PgRepository {
         })
     }
     pub async fn jobs(&self, query: JobQuery) -> Result<JobPage> {
+        let mut connection = crate::database::acquire(&self.pool, "jobs").await?;
+        self.jobs_on(&mut connection, query).await
+    }
+    pub(super) async fn jobs_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        query: JobQuery,
+    ) -> Result<JobPage> {
         let (page, size, offset) = page(query.page, query.page_size)?;
-        let context = self.ranking_context().await?;
+        let context = self.ranking_context_on(connection).await?;
         let rerank = context.as_ref().is_some_and(|(_, model, suppressed)| {
             model.as_ref().is_some_and(|model| {
                 model.samples >= model.minimum_samples
@@ -405,7 +437,7 @@ impl PgRepository {
             .bind(&search)
             .bind(&verdict)
             .bind(&decision)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *connection)
             .await?;
         let sort = match query.sort.unwrap_or_default() {
             JobSort::Score => {
@@ -429,7 +461,7 @@ impl PgRepository {
         .bind(decision)
         .bind(limit)
         .bind(query_offset)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *connection)
         .await?;
         let mut items = rows.iter().map(job_view).collect::<Result<Vec<_>>>()?;
         if let Some(context) = &context {
@@ -494,7 +526,7 @@ impl PgRepository {
         actor: &str,
         now: DateTime<Utc>,
     ) -> Result<ImportResult> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("import").await?;
         let result = self
             .import_in(
                 &mut tx,
@@ -505,7 +537,7 @@ impl PgRepository {
                 ImportOptions::default(),
             )
             .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "import").await?;
         Ok(result)
     }
     async fn import_in(
@@ -759,7 +791,7 @@ impl PgRepository {
             ));
         }
         let hash = fingerprint(&(id, &request))?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("feedback").await?;
         let row = sqlx::query("SELECT j.revision,j.decision,a.status FROM jobs j JOIN applications a ON a.job_id=j.id WHERE j.id=$1 FOR UPDATE OF j,a")
             .bind(id).fetch_optional(&mut *tx).await?.ok_or(StoreError::NotFound)?;
         if let Some(previous) = sqlx::query(
@@ -832,19 +864,27 @@ impl PgRepository {
         .bind(request.idempotency_key)
         .fetch_one(&mut *tx)
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "feedback").await?;
         feedback_view(&row)
     }
     pub async fn feedback_history(&self, query: FeedbackQuery) -> Result<FeedbackPage> {
+        let mut connection = crate::database::acquire(&self.pool, "feedback_history").await?;
+        self.feedback_history_on(&mut connection, query).await
+    }
+    pub(super) async fn feedback_history_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        query: FeedbackQuery,
+    ) -> Result<FeedbackPage> {
         let (page, size, offset) = page(query.page, query.page_size)?;
         let total: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM feedback WHERE ($1::uuid IS NULL OR job_id=$1)",
         )
         .bind(query.job_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *connection)
         .await?;
         let rows = sqlx::query("SELECT f.*,j.title FROM feedback f JOIN jobs j ON j.id=f.job_id WHERE ($1::uuid IS NULL OR f.job_id=$1) ORDER BY f.created_at DESC,f.id LIMIT $2 OFFSET $3")
-            .bind(query.job_id).bind(i64::from(size)).bind(offset).fetch_all(&self.pool).await?;
+            .bind(query.job_id).bind(i64::from(size)).bind(offset).fetch_all(&mut *connection).await?;
         Ok(FeedbackPage {
             items: rows.iter().map(feedback_view).collect::<Result<_>>()?,
             total,

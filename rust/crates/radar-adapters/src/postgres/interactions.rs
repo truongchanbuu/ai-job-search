@@ -14,7 +14,7 @@ impl PgRepository {
         registry: &BotProviderRegistry,
         now: DateTime<Utc>,
     ) -> Result<Value> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("accept_interaction").await?;
         if let Some(row)=sqlx::query("SELECT body_hash,acknowledgment FROM discord_interactions WHERE provider=$1 AND interaction_id=$2").bind(provider).bind(&interaction.id).fetch_optional(&mut *tx).await? {
             if row.try_get::<String,_>("body_hash")?!=body_hash{return Err(StoreError::Conflict);}
             return Ok(row.try_get::<Json<Value>,_>("acknowledgment")?.0);
@@ -73,7 +73,7 @@ impl PgRepository {
             return Err(StoreError::Conflict);
         }
         let response = row.try_get::<Json<Value>, _>("acknowledgment")?.0;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "accept_interaction").await?;
         Ok(response)
     }
     pub async fn process_interaction(
@@ -85,20 +85,20 @@ impl PgRepository {
         let Some(runtime) = &config.notifications.runtime else {
             return Ok(false);
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("process_interaction").await?;
         sqlx::query("UPDATE discord_interactions SET status=CASE WHEN status IN ('pending','running') THEN 'failed' ELSE status END,reply_status=CASE WHEN reply_status IN ('pending','sending') THEN 'failed' ELSE reply_status END,token_encrypted=NULL,error='interaction token expired' WHERE expires_at<=$1 AND token_encrypted IS NOT NULL")
             .bind(now).execute(&mut *tx).await?;
         let row=sqlx::query("SELECT * FROM discord_interactions WHERE (status='pending' OR (status='running' AND lease_until<=$1)) AND expires_at>$1 ORDER BY received_at,interaction_id LIMIT 1 FOR UPDATE SKIP LOCKED")
             .bind(now).fetch_optional(&mut *tx).await?;
         let Some(row) = row else {
-            tx.commit().await?;
+            crate::database::commit(tx, &self.pool, "process_interaction").await?;
             return Ok(false);
         };
         let provider: String = row.try_get("provider")?;
         let id: String = row.try_get("interaction_id")?;
         let owner = Uuid::new_v4();
         sqlx::query("UPDATE discord_interactions SET status='running',owner=$3,lease_until=$4 WHERE provider=$1 AND interaction_id=$2").bind(&provider).bind(&id).bind(owner).bind(now+chrono::Duration::seconds(runtime.delivery_lease_seconds as i64)).execute(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "process_interaction").await?;
         let actor = format!(
             "discord:{provider}:{}",
             row.try_get::<String, _>("user_id")?
@@ -290,7 +290,7 @@ impl PgRepository {
         let Some(runtime) = &config.notifications.runtime else {
             return Ok(false);
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("reply_interaction").await?;
         let row=sqlx::query("SELECT * FROM discord_interactions WHERE status IN ('completed','failed') AND (reply_status='pending' OR (reply_status='sending' AND reply_lease_until<=$1)) AND reply_next_at<=$1 AND expires_at>$1 AND token_encrypted IS NOT NULL ORDER BY received_at,interaction_id LIMIT 1 FOR UPDATE SKIP LOCKED").bind(now).fetch_optional(&mut *tx).await?;
         let Some(row) = row else { return Ok(false) };
         let provider: String = row.try_get("provider")?;
@@ -299,7 +299,7 @@ impl PgRepository {
         let attempts = row.try_get::<i32, _>("reply_attempts")? + 1;
         sqlx::query("UPDATE discord_interactions SET reply_status='sending',reply_attempts=$3,reply_owner=$4,reply_lease_until=$5 WHERE provider=$1 AND interaction_id=$2")
             .bind(&provider).bind(&id).bind(attempts).bind(owner).bind(now+chrono::Duration::seconds(runtime.delivery_lease_seconds as i64)).execute(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "reply_interaction").await?;
         let result = async {
             let cipher =
                 TokenCipher::from_config(&config, registry.secrets.as_ref()).map_err(|_| {

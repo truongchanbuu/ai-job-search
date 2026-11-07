@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Freelance Radar</title>
+    <link rel="icon" href="/radar.png" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Đến nội dung chính</a>
+    <aside>
+      <a class="brand" href="#dashboard"
+        ><img src="/radar.png" alt="" /><span
+          >Freelance Radar<small>Ít job hơn. Phù hợp hơn.</small></span
+        ></a
+      >
+      <nav aria-label="Điều hướng chính">
+        <a href="#dashboard">Tổng quan</a><a href="#jobs">Jobs</a
+        ><a href="#profile">Hồ sơ</a> <a href="#templates">Mẫu proposal</a
+        ><a href="#activity">Lịch sử</a><a href="#settings">Cài đặt</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <span id="connection">Chưa kết nối</span>
+        <p>Quyết định và gửi proposal<br />luôn do bạn thực hiện.</p>
+        <button id="logout" class="quiet">Đăng xuất</button>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header>
+        <div>
+          <span class="eyebrow">KHÔNG GIAN LÀM VIỆC CÁ NHÂN</span>
+          <h1 id="page-title">Tổng quan</h1>
+        </div>
+        <button id="refresh" class="secondary">Làm mới</button>
+      </header>
+      <div id="message" role="status" aria-live="polite" hidden></div>
+      <main id="main" tabindex="-1"><p>Đang mở Radar…</p></main>
+      <footer>
+        Dữ liệu từ server · Không tự ứng tuyển · AI chỉ chạy khi bạn yêu cầu
+      </footer>
+    </div>
+  </body>
+</html>

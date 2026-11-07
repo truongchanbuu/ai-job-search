@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod bots;
 pub mod config;
+pub mod database;
 pub mod discord;
 pub mod postgres;
 pub mod upwork;

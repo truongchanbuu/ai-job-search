@@ -2,6 +2,7 @@ mod ai;
 mod discord;
 mod learning;
 mod profiles;
+mod web;
 pub mod workers;
 use axum::{
     Json, Router,
@@ -31,6 +32,7 @@ pub struct AppState {
     pub repository: PgRepository,
     profile: Arc<Profile>,
     tokens: Arc<Tokens>,
+    browser: Arc<web::BrowserAccess>,
     pub bots: Arc<BotProviderRegistry>,
     pub upwork: Arc<dyn radar_adapters::upwork::UpworkGateway>,
     pub ai: Option<Arc<dyn radar_application::AiProvider>>,
@@ -70,6 +72,7 @@ impl AppState {
         Ok(Self {
             repository,
             profile: Arc::new(profile),
+            browser: Arc::new(web::BrowserAccess::default()),
             bots: Arc::new(BotProviderRegistry::default()),
             upwork: Arc::new(radar_adapters::upwork::OfficialUpwork),
             ai: None,
@@ -108,6 +111,7 @@ impl AppState {
     }
 }
 
+#[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
     code: &'static str,
@@ -163,20 +167,23 @@ impl From<StoreError> for ApiError {
                 Self::new(StatusCode::NOT_FOUND, "not_found", error.to_string())
             }
             StoreError::Database(ref database) => {
-                let code = database
-                    .as_database_error()
-                    .and_then(|error| error.code())
-                    .filter(|code| {
-                        code.len() == 5 && code.chars().all(|c| c.is_ascii_alphanumeric())
-                    });
-                eprintln!(
-                    "radar: database request failed (SQLSTATE={}; details redacted)",
-                    code.as_deref().unwrap_or("unavailable")
-                );
+                let failure = radar_adapters::database::classify(database);
                 Self::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "database_unavailable",
-                    "database unavailable; retry after refreshing state",
+                    if failure.unavailable {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    } else {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    },
+                    if failure.unavailable {
+                        "database_unavailable"
+                    } else {
+                        "database_operation_failed"
+                    },
+                    if failure.unavailable {
+                        "database unavailable; retry after refreshing state"
+                    } else {
+                        "database operation failed; details redacted"
+                    },
                 )
             }
             StoreError::Data(_) => {
@@ -205,24 +212,39 @@ impl IntoResponse for ApiError {
     }
 }
 async fn authorize(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
-    let token = request
+    let bearer = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
+    let cookie = web::cookie(request.headers());
+    if bearer.is_none()
+        && cookie.is_some()
+        && let Err(error) = web::browser_request(
+            request.headers(),
+            !matches!(*request.method(), Method::GET | Method::HEAD),
+        )
+    {
+        return error.into_response();
+    }
+    let token = bearer.or(cookie);
     let candidate: [u8; 32] = Sha256::digest(token.unwrap_or("").as_bytes()).into();
-    let owner = bool::from(candidate.ct_eq(&state.tokens.owner));
-    let reader = state
-        .tokens
-        .reader
-        .as_ref()
-        .is_some_and(|r| bool::from(candidate.ct_eq(r)));
+    let browser = token.and_then(|_| state.browser.principal(&candidate));
+    let owner = (bearer.is_some() && bool::from(candidate.ct_eq(&state.tokens.owner)))
+        || browser.is_some_and(|p| p.can_write);
+    let reader = (bearer.is_some()
+        && state
+            .tokens
+            .reader
+            .as_ref()
+            .is_some_and(|r| bool::from(candidate.ct_eq(r))))
+        || browser.is_some_and(|p| !p.can_write);
     if token.is_none() || (!owner && !reader) {
         eprintln!("radar: authorization rejected (missing or invalid credential)");
         return ApiError::new(
             StatusCode::UNAUTHORIZED,
             "unauthorized",
-            "a valid bearer token is required",
+            "authentication is required",
         )
         .into_response();
     }
@@ -250,6 +272,8 @@ async fn no_cache(request: Request, next: Next) -> Response {
 }
 pub fn router(state: AppState) -> Router {
     let protected = Router::new()
+        .route("/v1/web-access", get(web::access))
+        .route("/v1/session", get(web::session))
         .route("/v1/dashboard", get(dashboard))
         .route("/v1/sources", get(sources))
         .route("/v1/jobs", get(jobs))
@@ -292,6 +316,15 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize));
     Router::new()
         .merge(protected)
+        .route("/", get(web::index))
+        .route("/app.css", get(web::css))
+        .route("/app.js", get(web::js))
+        .route("/radar.png", get(web::icon))
+        .route("/web/logout", post(web::logout))
+        .route(
+            "/web/connect",
+            post(web::connect).layer(DefaultBodyLimit::max(1024)),
+        )
         .route(
             "/health/live",
             get(|| async {
@@ -317,11 +350,36 @@ pub fn router(state: AppState) -> Router {
         })
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn(no_cache))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            database_context,
+        ))
         .with_state(state)
 }
+async fn database_context(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let correlation = Uuid::new_v4();
+    let operation = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_else(|| "unmatched".into());
+    let context = radar_adapters::database::Operation {
+        name: format!("{} {}", request.method(), operation),
+        correlation,
+        pool: state.repository.pool.clone(),
+        started: std::time::Instant::now(),
+    };
+    let mut response = radar_adapters::database::OPERATION
+        .scope(context, next.run(request))
+        .await;
+    response.headers_mut().insert(
+        "x-request-id",
+        correlation.to_string().parse().expect("UUID header"),
+    );
+    response
+}
 async fn ready(State(state): State<AppState>) -> Result<Json<Health>, ApiError> {
-    sqlx::query("SELECT 1")
-        .execute(&state.repository.pool)
+    radar_adapters::database::probe(&state.repository.pool)
         .await
         .map_err(StoreError::from)?;
     Ok(Json(Health {
@@ -494,4 +552,23 @@ async fn queue_upwork(
                 .await?,
         ),
     ))
+}
+
+#[cfg(test)]
+mod database_error_tests {
+    use super::*;
+    #[test]
+    fn unavailable_transport_and_unrelated_database_errors_have_distinct_sanitized_statuses() {
+        let error = ApiError::from(StoreError::Database(sqlx::Error::Io(
+            std::io::Error::other("PRIVATE_PASSWORD postgres://secret"),
+        )));
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!error.message.contains("PRIVATE"));
+        let error = ApiError::from(StoreError::Database(sqlx::Error::ColumnNotFound(
+            "PRIVATE_COLUMN".into(),
+        )));
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "database_operation_failed");
+        assert!(!error.message.contains("PRIVATE"));
+    }
 }

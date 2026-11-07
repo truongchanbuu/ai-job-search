@@ -8,8 +8,7 @@ use radar_adapters::{
     postgres::{MIGRATOR, PgRepository},
 };
 use radar_server::{AppState, router};
-use sqlx::postgres::PgPoolOptions;
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Parser)]
 #[command(about = "Personal Freelance Radar — local core and authenticated cloud API")]
@@ -40,6 +39,14 @@ enum Command {
     },
     /// Apply embedded versioned migrations and exit. Requires RADAR_DATABASE_URL.
     Migrate,
+    /// Read-only connection/pool smoke test. Never migrates or initializes application state.
+    DbCheck {
+        #[arg(long,default_value_t=5,value_parser=clap::value_parser!(u32).range(1..=10))]
+        reads: u32,
+        /// Exercise the real health route on a temporary loopback server; no startup writes/workers.
+        #[arg(long)]
+        http: bool,
+    },
     /// Explicitly register Radar commands in one allowed Discord guild (never runs on startup).
     RegisterDiscord {
         #[arg(long)]
@@ -85,31 +92,8 @@ async fn main() {
 }
 async fn pool(variable: &str) -> Result<sqlx::PgPool> {
     let url = std::env::var(variable).with_context(|| format!("{variable} must be set"))?;
-    let timeout = std::env::var("RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "30".into())
-        .parse::<u64>()
-        .context("RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS must be an integer from 1 to 120")?;
-    ensure!(
-        (1..=120).contains(&timeout),
-        "RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS must be an integer from 1 to 120"
-    );
-    PgPoolOptions::new()
-        .max_connections(8)
-        .acquire_timeout(Duration::from_secs(timeout))
-        .connect(&url)
-        .await
-        .map_err(|error| {
-            let category = match error {
-                sqlx::Error::PoolTimedOut => "connection_timeout",
-                sqlx::Error::Tls(_) => "tls_failure",
-                sqlx::Error::Io(_) => "connection_io_failure",
-                sqlx::Error::Database(_) => "database_rejected",
-                _ => "connection_failure",
-            };
-            anyhow::anyhow!("PostgreSQL {category}; check database credentials and connectivity (details redacted)")
-        })
+    let settings = radar_adapters::database::PoolSettings::from_env()?;
+    radar_adapters::database::connect(&url, &settings).await
 }
 async fn run() -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
@@ -194,12 +178,82 @@ async fn run() -> Result<()> {
             at,
             output,
         ),
+        Command::DbCheck { reads, http } => {
+            let pool = pool("RADAR_DATABASE_URL").await?;
+            let mut server = None;
+            let mut endpoint = None;
+            if http {
+                let profile_dir = std::env::var_os("RADAR_PROFILE_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| root.join("rust/fixtures/profiles"));
+                let profile = load_profile(&profile_dir)?;
+                let state = AppState::new(
+                    PgRepository::new(pool.clone()),
+                    profile,
+                    &uuid::Uuid::new_v4().simple().to_string(),
+                    None,
+                )?;
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+                endpoint = Some(format!("http://{}/health/ready", listener.local_addr()?));
+                server = Some(tokio::spawn(async move {
+                    let _ = axum::serve(listener, router(state)).await;
+                }));
+            }
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(16))
+                .no_proxy()
+                .build()?;
+            for sample in 0..reads {
+                if let Some(url) = &endpoint {
+                    let response =
+                        client.get(url).send().await.map_err(|_| {
+                            anyhow::anyhow!("read-only HTTP probe transport failure")
+                        })?;
+                    anyhow::ensure!(
+                        response.status().is_success(),
+                        "read-only HTTP readiness failed with status {}; details redacted",
+                        response.status().as_u16()
+                    );
+                    println!(
+                        "HTTP readiness read {}: 200 | pool_size={} idle={}",
+                        sample + 1,
+                        pool.size(),
+                        pool.num_idle()
+                    );
+                } else {
+                    radar_adapters::database::probe(&pool).await.map_err(|_| {
+                        anyhow::anyhow!("PostgreSQL probe failed; see sanitized diagnostics")
+                    })?;
+                    println!(
+                        "PostgreSQL read {} OK | pool_size={} idle={}",
+                        sample + 1,
+                        pool.size(),
+                        pool.num_idle()
+                    );
+                }
+                if sample + 1 < reads {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+            if let Some(server) = server {
+                server.abort();
+                let _ = server.await;
+            }
+            pool.close().await;
+            Ok(())
+        }
         Command::Migrate => {
             let pool = pool("RADAR_DATABASE_URL").await?;
             MIGRATOR
                 .run(&pool)
                 .await
-                .context("database migration failed")?;
+                .map_err(|error|{
+                    match &error {
+                        sqlx::migrate::MigrateError::Execute(e)|sqlx::migrate::MigrateError::ExecuteMigration(e,_)=>radar_adapters::database::report(e,"startup_migrations","migration",std::time::Duration::ZERO,Some(&pool),uuid::Uuid::new_v4()),
+                        _=>eprintln!("radar: startup_migrations failed; migration metadata mismatch; values redacted"),
+                    }
+                    anyhow::anyhow!("database migration failed; details redacted")
+                })?;
             pool.close().await;
             println!("Database migrations applied");
             Ok(())
@@ -296,7 +350,13 @@ async fn run() -> Result<()> {
             MIGRATOR
                 .run(&pool)
                 .await
-                .context("database migration failed")?;
+                .map_err(|error|{
+                    match &error {
+                        sqlx::migrate::MigrateError::Execute(e)|sqlx::migrate::MigrateError::ExecuteMigration(e,_)=>radar_adapters::database::report(e,"startup_migrations","migration",std::time::Duration::ZERO,Some(&pool),uuid::Uuid::new_v4()),
+                        _=>eprintln!("radar: startup_migrations failed; migration metadata mismatch; values redacted"),
+                    }
+                    anyhow::anyhow!("database migration failed; details redacted")
+                })?;
             let repository = PgRepository::new(pool.clone());
             repository
                 .recover_ai()
@@ -324,9 +384,7 @@ async fn run() -> Result<()> {
                 )))
             };
             axum::serve(listener, router(state))
-                .with_graceful_shutdown(async {
-                    let _ = tokio::signal::ctrl_c().await;
-                })
+                .with_graceful_shutdown(shutdown_signal())
                 .await?;
             let _ = shutdown.send(true);
             if let Some(worker) = worker {
@@ -335,5 +393,22 @@ async fn run() -> Result<()> {
             pool.close().await;
             Ok(())
         }
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut terminate) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=terminate.recv()=>{}}
+        } else {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }

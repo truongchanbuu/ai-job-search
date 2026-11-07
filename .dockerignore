@@ -5,6 +5,9 @@ rust/target/
 !config/
 !config/*.example.yaml
 !Dockerfile.radar
+!assets/
+!assets/radar/
+!assets/radar/radar.png
 rust/**/.env*
 rust/**/private/
 rust/**/*.db*

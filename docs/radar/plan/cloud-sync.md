@@ -262,12 +262,12 @@ for migration versions, configuration precedence, tests and known limitations.
 See [Discord setup](discord-setup.md) for the unperformed real-service checks.
 
 
-Native server database connection acquisition defaults to 30 seconds for remote
+Native server database connection acquisition defaults to 10 seconds for remote
 PostgreSQL/Supabase. Set `RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS` to an integer
 from 1 through 120 to override it (leave the variable empty or unset to use the default).
 This setting applies to `serve` and `migrate`. Startup errors distinguish
 connection timeouts, TLS failures and database rejections without printing the
-connection URL or credentials. API database errors log only their SQLSTATE code.
+connection URL or credentials. API database diagnostics include sanitized error categories, SQLSTATE, operation, pool counters and correlation IDs. See [database reliability](database-reliability.md) for the shared pool policy and verified fault tests.
 
 The terminal client's total HTTP request timeout defaults to 45 seconds, allowing
 for remote database acquisition and query time. Override it with

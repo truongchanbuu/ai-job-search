@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+reqwest.workspace = true
 radar-domain.workspace = true
 radar-application.workspace = true
 radar-adapters.workspace = true

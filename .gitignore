@@ -29,6 +29,7 @@ linkedin_Profile.pdf
 *.jpg
 *.jpeg
 *.png
+!assets/radar/radar.png
 !cover_letters/OpenFonts/fonts/**
 
 # OS files

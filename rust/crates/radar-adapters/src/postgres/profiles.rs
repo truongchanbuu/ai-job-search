@@ -60,7 +60,7 @@ impl PgRepository {
             ));
         }
         let profile=crate::profile_from_documents(request.documents).map_err(|_|StoreError::Invalid("invalid profile modules or evidence; check front matter, skills, rates and portfolio references; values redacted".into()))?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("save_profile").await?;
         let revision: i64 = sqlx::query_scalar(
             "SELECT revision FROM owner_profile WHERE singleton=true FOR UPDATE",
         )
@@ -87,7 +87,7 @@ impl PgRepository {
             json!({"profile_revision":profile.revision,"revision":revision+1}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "save_profile").await?;
         self.profile_view(fallback).await
     }
 }

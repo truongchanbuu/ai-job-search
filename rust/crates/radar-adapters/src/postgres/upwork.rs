@@ -30,7 +30,7 @@ impl PgRepository {
             ));
         }
         // Same admission limit and idempotency ledger as mock scans, with source bound atomically.
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("queue_upwork_scan").await?;
         sqlx::query("SELECT revision FROM runtime_config WHERE singleton=true FOR UPDATE")
             .fetch_one(&mut *tx)
             .await?;
@@ -47,7 +47,7 @@ impl PgRepository {
             {
                 return Err(StoreError::Conflict);
             }
-            tx.commit().await?;
+            crate::database::commit(tx, &self.pool, "queue_upwork_scan").await?;
             return self.scan_run(request.idempotency_key).await;
         }
         let count: i64 = sqlx::query_scalar(
@@ -65,7 +65,7 @@ impl PgRepository {
             return Err(StoreError::Invalid("scan queue is full".into()));
         }
         sqlx::query("INSERT INTO scan_runs(id,run_key,origin,scheduled_at,source,search_profile) VALUES ($1,$2,$3,$4,'upwork',$5)").bind(request.idempotency_key).bind(format!("request:{}",request.idempotency_key)).bind(origin).bind(now).bind(profile).execute(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "queue_upwork_scan").await?;
         self.scan_run(request.idempotency_key).await
     }
     pub async fn scan_run(&self, id: Uuid) -> Result<ScanRun> {

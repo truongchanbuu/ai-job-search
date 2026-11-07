@@ -19,6 +19,21 @@
 
 ## Test layers
 
+The owner-authorized [local web client](web-ui.md) uses the same API and services.
+Its browser tests verify jobs, feedback, mock AI/proposal review/edit/copy,
+profile/template persistence, stale updates, disconnects, HTML escaping and
+mobile layout. Cookie auth tests verify owner/read-only permissions, one-use
+codes, HttpOnly/SameSite flags, CSRF rejection and logout revocation. The
+2026-11-07 isolated workspace run passed 111 tests; real provider availability
+is a separate acceptance gate.
+
+Database reliability verification: **104 Rust tests passed** with an isolated
+PostgreSQL instance and ignored tests enabled (2026-11-05). This includes
+single-connection transaction regression, interrupted connections, pool
+saturation, rollback and automatic recovery. Actual local PostgreSQL restart
+and read-only Supabase SQLx/HTTP probes also passed. See
+[evidence, limits and deployment decision](database-reliability.md).
+
 - Unit: scoring, hard veto, config merge, routing/quiet hours, identifiers.
 - Integration: Axum API, SQLx migrations, optimistic updates, scheduler locks/outbox.
 - End-to-end: mock job -> evaluation -> persisted event -> fake/Discord notification -> feedback -> TUI.

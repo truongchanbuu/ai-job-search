@@ -18,14 +18,23 @@ impl PgRepository {
         Ok(())
     }
     pub async fn ai_history(&self, job_id: Uuid, profile: &Profile) -> Result<AiHistory> {
-        let job = self.job(job_id).await?;
-        let config = self.config().await?;
+        let mut connection = crate::database::acquire(&self.pool, "ai_history").await?;
+        self.ai_history_on(&mut connection, job_id, profile).await
+    }
+    async fn ai_history_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        job_id: Uuid,
+        profile: &Profile,
+    ) -> Result<AiHistory> {
+        let job = self.job_in(connection, job_id).await?;
+        let config = self.config_in(connection).await?;
         let hash = job_hash(&job).map_err(|_| invalid("job fingerprint failed"))?;
         let rows = sqlx::query(
             "SELECT * FROM ai_operations WHERE job_id=$1 ORDER BY created_at DESC,id LIMIT 50",
         )
         .bind(job_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *connection)
         .await?;
         let mut operations = vec![];
         for row in rows {
@@ -53,7 +62,7 @@ impl PgRepository {
             "SELECT * FROM proposal_revisions WHERE job_id=$1 ORDER BY revision DESC LIMIT 100",
         )
         .bind(job_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *connection)
         .await?;
         let drafts = rows
             .into_iter()
@@ -87,7 +96,7 @@ impl PgRepository {
             .filter(|r| r.enabled)
             .ok_or_else(|| invalid("AI disabled; explicitly configure a provider"))?;
         let request_hash = fingerprint(&(job_id, kind, &request))?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("begin_ai").await?;
         sqlx::query("SELECT pg_advisory_xact_lock(5732035)")
             .execute(&mut *tx)
             .await?;
@@ -99,7 +108,7 @@ impl PgRepository {
             if row.try_get::<String, _>("request_hash")? != request_hash {
                 return Err(StoreError::Conflict);
             }
-            tx.commit().await?;
+            crate::database::commit(tx, &self.pool, "begin_ai").await?;
             let operation = self
                 .ai_history(job_id, profile)
                 .await?
@@ -127,7 +136,7 @@ impl PgRepository {
         } else {
             None
         };
-        let job = self.job(job_id).await?;
+        let job = self.job_in(&mut tx, job_id).await?;
         if request.expected_revision != job.revision {
             return Err(StoreError::Conflict);
         }
@@ -156,7 +165,7 @@ impl PgRepository {
                 .evaluation_id
                 .ok_or_else(|| invalid("approved evaluation ID required"))?;
             let analysis = self
-                .ai_history(job_id, profile)
+                .ai_history_on(&mut tx, job_id, profile)
                 .await?
                 .operations
                 .into_iter()
@@ -175,10 +184,13 @@ impl PgRepository {
             )?);
         }
         let feedback = self
-            .feedback_history(FeedbackQuery {
-                job_id: Some(job_id),
-                ..Default::default()
-            })
+            .feedback_history_on(
+                &mut tx,
+                FeedbackQuery {
+                    job_id: Some(job_id),
+                    ..Default::default()
+                },
+            )
             .await?
             .items
             .into_iter()
@@ -274,7 +286,7 @@ impl PgRepository {
             json!({"job_id":job_id,"operation_id":operation.id,"kind":kind}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "begin_ai").await?;
         Ok((operation, Some((input, config.effective))))
     }
     pub async fn execute_ai(
@@ -310,7 +322,7 @@ impl PgRepository {
             },Err(_)=>Err("provider_timeout")},
             _=cancelled=>return Ok(()),
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("execute_ai").await?;
         let row = sqlx::query("SELECT status FROM ai_operations WHERE id=$1 FOR UPDATE")
             .bind(operation.id)
             .fetch_one(&mut *tx)
@@ -340,8 +352,8 @@ impl PgRepository {
         });
         match reply {
             Ok(reply) => {
-                let current = self.job(operation.job_id).await?;
-                let current_config = self.config().await?;
+                let current = self.job_in(&mut tx, operation.job_id).await?;
+                let current_config = self.config_in(&mut tx).await?;
                 if job_hash(&current).map_err(|_| invalid("job fingerprint failed"))?
                     != operation.job_hash
                     || current_config.revision != operation.config_revision
@@ -371,11 +383,11 @@ impl PgRepository {
             json!({"job_id":operation.job_id,"operation_id":operation.id}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "execute_ai").await?;
         Ok(())
     }
     pub async fn cancel_ai(&self, job_id: Uuid, id: Uuid) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("cancel_ai").await?;
         sqlx::query("UPDATE ai_operations SET status='cancelled',error='user_cancelled',completed_at=now() WHERE id=$1 AND job_id=$2 AND status='running'").bind(id).bind(job_id).execute(&mut *tx).await?;
         audit(
             &mut tx,
@@ -385,7 +397,7 @@ impl PgRepository {
             json!({"job_id":job_id,"operation_id":id}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "cancel_ai").await?;
         Ok(())
     }
     pub async fn approve_ai(
@@ -408,7 +420,7 @@ impl PgRepository {
                 o.id == id && o.kind == TaskKind::Evaluate && o.status == "completed" && !o.stale
             })
             .ok_or_else(|| invalid("current completed evaluation required"))?;
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("approve_ai").await?;
         sqlx::query("UPDATE ai_operations SET approved=true WHERE id=$1")
             .bind(op.id)
             .execute(&mut *tx)
@@ -421,7 +433,7 @@ impl PgRepository {
             json!({"job_id":job_id,"operation_id":id}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "approve_ai").await?;
         Ok(())
     }
     pub async fn edit_proposal(
@@ -454,7 +466,7 @@ impl PgRepository {
         {
             return Err(invalid("stale proposal cannot be approved"));
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("edit_proposal").await?;
         sqlx::query("SELECT pg_advisory_xact_lock(5732035)")
             .execute(&mut *tx)
             .await?;
@@ -485,7 +497,7 @@ impl PgRepository {
             json!({"job_id":job_id,"revision":result.revision,"approved":request.approve}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "edit_proposal").await?;
         Ok(result)
     }
 }

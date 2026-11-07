@@ -12,7 +12,14 @@ fn legacy_code(reason: Option<&str>) -> Option<ReasonCode> {
 type RankingContext = (LearningSettings, Option<PreferenceModel>, BTreeSet<String>);
 impl PgRepository {
     pub(super) async fn ranking_context(&self) -> Result<Option<RankingContext>> {
-        let config = self.config().await?;
+        let mut connection = crate::database::acquire(&self.pool, "ranking_context").await?;
+        self.ranking_context_on(&mut connection).await
+    }
+    pub(super) async fn ranking_context_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<Option<RankingContext>> {
+        let config = self.config_in(connection).await?;
         let Some(settings) = config
             .effective
             .scoring
@@ -24,14 +31,14 @@ impl PgRepository {
             return Ok(None);
         };
         let row = sqlx::query("SELECT * FROM preference_state WHERE singleton=true")
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *connection)
             .await?;
         let suppressed: Json<BTreeSet<String>> = row.try_get("suppressed")?;
         let active: Option<Uuid> = row.try_get("active_model")?;
         let model = if let Some(id) = active {
             let row = sqlx::query("SELECT snapshot,rejected FROM preference_models WHERE id=$1")
                 .bind(id)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *connection)
                 .await?;
             let Json(model): Json<PreferenceModel> = row.try_get("snapshot")?;
             if !row.try_get::<bool, _>("rejected")?
@@ -40,7 +47,7 @@ impl PgRepository {
                     == sqlx::query_scalar::<_, i64>(
                         "SELECT feedback_revision FROM preference_state WHERE singleton=true",
                     )
-                    .fetch_one(&self.pool)
+                    .fetch_one(&mut *connection)
                     .await?
                 && model.config_hash
                     == settings
@@ -91,13 +98,13 @@ impl PgRepository {
         let code = request
             .reason_code
             .or_else(|| legacy_code(request.reason.as_deref()));
-        let config = self.config().await?;
+        let config = self.config_in(tx).await?;
         let snapshot = if let Some(settings) = &config.effective.scoring.personalization.runtime {
             let row=sqlx::query("SELECT input,snapshot,created_at FROM evaluations WHERE job_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1").bind(job_id).fetch_one(&mut **tx).await?;
             let job: Json<Job> = row.try_get("input")?;
             let evaluation: Json<radar_domain::Evaluation> = row.try_get("snapshot")?;
             let features = extract(&job.0, &evaluation.0, row.try_get("created_at")?, settings);
-            let ranking = if let Some(context) = self.ranking_context().await? {
+            let ranking = if let Some(context) = self.ranking_context_on(tx).await? {
                 Some(explain(
                     &features,
                     if previous_decision.is_some_and(FeedbackAction::excludes_recommendations)
@@ -131,6 +138,7 @@ impl PgRepository {
     }
     async fn learning_events(
         &self,
+        connection: &mut sqlx::PgConnection,
         settings: &LearningSettings,
         cutoff: DateTime<Utc>,
     ) -> Result<(Vec<LearningEvent>, usize)> {
@@ -144,7 +152,7 @@ impl PgRepository {
             })
             .transpose()?;
         let rows=sqlx::query("SELECT f.id,f.job_id,f.action,f.actor,f.reason,f.application_status,f.created_at,f.learning_snapshot,r.version,r.reason_code,r.excluded,r.actual_effort_hours,r.created_at AS available_at,e.input-'description' AS input,e.snapshot,e.created_at AS observed_at FROM feedback f JOIN feedback_learning_revisions r ON r.feedback_id=f.id LEFT JOIN LATERAL(SELECT input,snapshot,created_at FROM evaluations WHERE job_id=f.job_id AND created_at<=f.created_at ORDER BY created_at DESC,id DESC LIMIT 1)e ON true WHERE f.created_at<=$1 AND r.created_at<=$1 AND ($3::timestamptz IS NULL OR f.created_at>=$3) ORDER BY f.created_at,f.id,r.version LIMIT $2")
-            .bind(cutoff).bind(settings.max_feedback_events as i64+1).bind(window_start).fetch_all(&self.pool).await?;
+            .bind(cutoff).bind(settings.max_feedback_events as i64+1).bind(window_start).fetch_all(&mut *connection).await?;
         if rows.len() > settings.max_feedback_events {
             return Err(invalid(
                 "feedback history exceeds configured rebuild bound; choose an explicit smaller data window/configuration",
@@ -221,6 +229,7 @@ impl PgRepository {
     }
     async fn calibration_from(
         &self,
+        connection: &mut sqlx::PgConnection,
         events: &[LearningEvent],
         missing: usize,
         settings: &LearningSettings,
@@ -274,7 +283,7 @@ impl PgRepository {
                         .is_some_and(|s| s <= settings.low_score_threshold),
             );
             let row=sqlx::query("SELECT (SELECT output FROM ai_operations WHERE job_id=$1 AND kind='evaluate' AND status='completed' AND completed_at<=$2 ORDER BY completed_at DESC,id DESC LIMIT 1) AS output,EXISTS(SELECT 1 FROM proposal_revisions WHERE job_id=$1 AND created_at<=$2) AS drafted,(SELECT learning_snapshot->'ranking' FROM feedback WHERE id=$3) AS ranking")
-                .bind(event.job_id).bind(event.at).bind(event.feedback_id).fetch_one(&self.pool).await?;
+                .bind(event.job_id).bind(event.at).bind(event.feedback_id).fetch_one(&mut *connection).await?;
             let output: Option<Json<Value>> = row.try_get("output")?;
             if let Some(output) = output {
                 report.ai_comparisons += 1;
@@ -294,7 +303,7 @@ impl PgRepository {
             if let Some(actual) = event.actual_effort_hours {
                 // Compare estimates made before the recorded application, not after delivery.
                 let row=sqlx::query("SELECT output FROM ai_operations WHERE job_id=$1 AND kind='evaluate' AND status='completed' AND completed_at<coalesce((SELECT min(created_at) FROM feedback WHERE job_id=$1 AND action='applied'),$2) ORDER BY completed_at DESC,id DESC LIMIT 1")
-                    .bind(event.job_id).bind(event.at).fetch_optional(&self.pool).await?;
+                    .bind(event.job_id).bind(event.at).fetch_optional(&mut *connection).await?;
                 if let Some(row) = row {
                     let output: Json<Value> = row.try_get("output")?;
                     if let Some(estimate) = output
@@ -383,9 +392,17 @@ impl PgRepository {
         Ok(view)
     }
     pub async fn preference_model(&self, id: Uuid) -> Result<PreferenceModel> {
+        let mut connection = crate::database::acquire(&self.pool, "preference_model").await?;
+        self.preference_model_on(&mut connection, id).await
+    }
+    async fn preference_model_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<PreferenceModel> {
         let row = sqlx::query("SELECT snapshot FROM preference_models WHERE id=$1")
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *connection)
             .await?
             .ok_or(StoreError::NotFound)?;
         Ok(row.try_get::<Json<PreferenceModel>, _>("snapshot")?.0)
@@ -399,7 +416,7 @@ impl PgRepository {
         if cutoff > database_now {
             return Err(invalid("training cutoff cannot be in the future"));
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("rebuild_preferences").await?;
         let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtextextended(current_schema() || ':radar-preferences', 0))")
             .fetch_one(&mut *tx)
             .await?;
@@ -430,7 +447,7 @@ impl PgRepository {
         .fetch_one(&mut *tx)
         .await?;
         let feedback_revision = current_feedback_revision - later_corrections;
-        let config = self.config().await?;
+        let config = self.config_in(&mut tx).await?;
         if !config
             .effective
             .scoring
@@ -451,7 +468,7 @@ impl PgRepository {
             .scoring
             .personalization
             .min_feedback_samples_for_suggestion as usize;
-        let (events, missing) = self.learning_events(settings, cutoff).await?;
+        let (events, missing) = self.learning_events(&mut tx, settings, cutoff).await?;
         let mut model = fit(
             request.idempotency_key,
             &events,
@@ -464,7 +481,7 @@ impl PgRepository {
         model.backtest =
             backtest(&events, cutoff, settings, minimum).map_err(|_| invalid("backtest failed"))?;
         model.calibration = self
-            .calibration_from(&events, missing, settings, cutoff)
+            .calibration_from(&mut tx, &events, missing, settings, cutoff)
             .await?;
         sqlx::query("INSERT INTO preference_models(id,request_hash,snapshot) VALUES($1,$2,$3)")
             .bind(model.id)
@@ -480,11 +497,11 @@ impl PgRepository {
             json!({"model_id":model.id,"samples":model.samples,"cutoff":model.cutoff}),
         )
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "rebuild_preferences").await?;
         Ok(model)
     }
     pub async fn control_preferences(&self, request: PreferenceControl) -> Result<PreferenceView> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("control_preferences").await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':radar-preferences', 0))")
             .execute(&mut *tx)
             .await?;
@@ -498,13 +515,13 @@ impl PgRepository {
         let feedback_revision: i64 = row.try_get("feedback_revision")?;
         let mut active: Option<Uuid> = row.try_get("active_model")?;
         let mut suppressed = row.try_get::<Json<BTreeSet<String>>, _>("suppressed")?.0;
-        let config = self.config().await?;
+        let config = self.config_in(&mut tx).await?;
         match request.action {
             PreferenceAction::Activate | PreferenceAction::Rollback => {
                 let id = request
                     .model_id
                     .ok_or_else(|| invalid("model ID required"))?;
-                let model = self.preference_model(id).await?;
+                let model = self.preference_model_on(&mut tx, id).await?;
                 let rejected: bool =
                     sqlx::query_scalar("SELECT rejected FROM preference_models WHERE id=$1")
                         .bind(id)
@@ -574,7 +591,7 @@ impl PgRepository {
                     .or(active)
                     .ok_or_else(|| invalid("model required"))?;
                 if !self
-                    .preference_model(id)
+                    .preference_model_on(&mut tx, id)
                     .await?
                     .weights
                     .contains_key(feature)
@@ -607,7 +624,7 @@ impl PgRepository {
         }
         sqlx::query("UPDATE preference_state SET revision=revision+1,active_model=$1,suppressed=$2 WHERE singleton=true").bind(active).bind(Json(&suppressed)).execute(&mut *tx).await?;
         audit(&mut tx,"owner","preference_control","model",json!({"action":request.action,"active":active,"suppressed":suppressed,"revision":revision+1})).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "control_preferences").await?;
         self.preference_view().await
     }
     pub async fn correct_learning_feedback(
@@ -621,7 +638,7 @@ impl PgRepository {
         {
             return Err(invalid("actual effort must be positive and bounded"));
         }
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("correct_learning_feedback").await?;
         // Match rebuild lock order so correction and model admission cannot race.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':radar-preferences', 0))")
             .execute(&mut *tx)
@@ -656,7 +673,7 @@ impl PgRepository {
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "correct_learning_feedback").await?;
         feedback_view(&updated)
     }
     pub async fn preference_calibration(&self) -> Result<Calibration> {
@@ -669,8 +686,11 @@ impl PgRepository {
             .as_ref()
             .ok_or_else(|| invalid("personalization runtime missing"))?;
         let cutoff = Utc::now();
-        let (events, missing) = self.learning_events(settings, cutoff).await?;
-        self.calibration_from(&events, missing, settings, cutoff)
+        let mut connection = crate::database::acquire(&self.pool, "calibration").await?;
+        let (events, missing) = self
+            .learning_events(&mut connection, settings, cutoff)
+            .await?;
+        self.calibration_from(&mut connection, &events, missing, settings, cutoff)
             .await
     }
     pub async fn compare_preferences(&self, id: Uuid) -> Result<ModelComparison> {

@@ -2082,6 +2082,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "radar-launcher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenvy",
+ "fs2",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "radar-server"
 version = "0.1.0"
 dependencies = [

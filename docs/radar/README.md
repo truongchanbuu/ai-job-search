@@ -17,16 +17,20 @@ Read the [BRD](BRD.md), then change only the smallest file that owns your concer
 
 ## Architecture & quality
 
+- [Simple local web interface](plan/web-ui.md) — HTML/CSS/JS on the existing authenticated Axum API.
+
 - [System boundaries](architecture/01-system.md) · [Storage model](architecture/02-data.md) · [Integration contracts](architecture/03-integrations.md)
 - [Scoring standard](standards/scoring.md) · [Proposal standard](standards/proposals.md) · [Editing conventions](standards/documentation.md)
 - [Phases](plan/roadmap.md) · [Acceptance tests](plan/acceptance.md) · [Official references](references.md)
 
 - [Phase 4 manual Upwork MCP](plan/upwork-mcp.md) — live authentication/search verification pending
 - [Phase 3 scheduling and outbox](plan/background.md) · [Discord setup](plan/discord-setup.md)
-- [Phase 2 cloud sync and terminal UI](plan/cloud-sync.md)
+- [Phase 2 cloud sync and terminal UI](plan/cloud-sync.md) · [Database reliability](plan/database-reliability.md)
 - [Phase 0–1 local core](plan/local-core.md) · [Follow-on backlog](plan/backlog.md)
 
 ## Personal files and configuration
+
+- [Open Radar from the Windows desktop](plan/desktop-launcher.md) — one shortcut for the local backend and terminal UI.
 
 - **Human prose:** `templates/radar-profile/*.md` → copy to `private/profiles/*.md` (**gitignored**).
 - **Operational settings:** `config/radar.example.yaml`, `config/scoring.example.yaml`, `config/notifications.example.yaml` → copy as `private/config/radar.yaml`, `scoring.yaml`, and `notifications.yaml` (**gitignored**) for local overrides; see [setup](../../config/README.md).

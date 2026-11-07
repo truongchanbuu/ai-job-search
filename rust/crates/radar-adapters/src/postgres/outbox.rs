@@ -100,6 +100,25 @@ impl PgRepository {
     }
     pub async fn queue_digest(&self, id: Uuid, now: DateTime<Utc>) -> Result<Uuid> {
         let config = self.config().await?;
+        let mut tx = self.begin("queue_digest").await?;
+        let message = self.digest_message(&mut tx, &config).await?;
+        let event = enqueue_event(
+            &mut tx,
+            &config.effective,
+            &format!("digest:{id}"),
+            EventKind::DailyDigest,
+            message,
+            now,
+        )
+        .await?;
+        crate::database::commit(tx, &self.pool, "queue_digest").await?;
+        Ok(event)
+    }
+    async fn digest_message(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        config: &ConfigView,
+    ) -> Result<NotificationMessage> {
         let max = config
             .effective
             .notifications
@@ -107,11 +126,14 @@ impl PgRepository {
             .as_ref()
             .map_or(5, |s| s.max_digest_jobs);
         let jobs = self
-            .jobs(JobQuery {
-                verdict: Some(Verdict::ApplyCandidate),
-                page_size: Some(100),
-                ..Default::default()
-            })
+            .jobs_on(
+                connection,
+                JobQuery {
+                    verdict: Some(Verdict::ApplyCandidate),
+                    page_size: Some(100),
+                    ..Default::default()
+                },
+            )
             .await?;
         let body = jobs
             .items
@@ -148,18 +170,7 @@ impl PgRepository {
             job_revision: None,
             score: None,
         };
-        let mut tx = self.pool.begin().await?;
-        let event = enqueue_event(
-            &mut tx,
-            &config.effective,
-            &format!("digest:{id}"),
-            EventKind::DailyDigest,
-            message,
-            now,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(event)
+        Ok(message)
     }
     pub async fn plan_digest(&self, now: DateTime<Utc>) -> Result<()> {
         let config = self.config().await?;
@@ -178,7 +189,7 @@ impl PgRepository {
             .timezone
             .parse()
             .expect("validated timezone");
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("plan_digest").await?;
         if !notify_lock(&mut tx).await? {
             return Ok(());
         }
@@ -205,7 +216,8 @@ impl PgRepository {
             now,
         );
         if let Some(at) = due.last() {
-            // Queue outside this transaction only after claiming a stable local-date id.
+            let message = self.digest_message(&mut tx, &config).await?;
+            // Queue and cursor advance share one transaction and connection.
             let key = format!(
                 "scheduled-digest:{}:{}",
                 zone,
@@ -213,13 +225,21 @@ impl PgRepository {
             );
             let id = Uuid::new_v5(&Uuid::NAMESPACE_OID, key.as_bytes());
             // The event key makes this safe if the process dies before advancing the cursor.
-            self.queue_digest(id, now).await?;
+            enqueue_event(
+                &mut tx,
+                &config.effective,
+                &format!("digest:{id}"),
+                EventKind::DailyDigest,
+                message,
+                now,
+            )
+            .await?;
         }
         sqlx::query("UPDATE digest_state SET planned_through=$1 WHERE singleton=true")
             .bind(now)
             .execute(&mut *tx)
             .await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "plan_digest").await?;
         Ok(())
     }
     async fn claim_delivery(
@@ -227,15 +247,15 @@ impl PgRepository {
         registry: &BotProviderRegistry,
         now: DateTime<Utc>,
     ) -> Result<Option<Claimed>> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("claim_delivery").await?;
         if !notify_lock(&mut tx).await? {
             return Ok(None);
         }
         // A crashed POST may have succeeded externally. Never blindly resend it after a lease expires.
         sqlx::query("UPDATE notification_deliveries SET status='uncertain',error='worker interrupted during external delivery; manual review required',lease_until=NULL WHERE status='sending' AND lease_until<=$1").bind(now).execute(&mut *tx).await?;
-        let config = self.config().await?.effective;
+        let config = self.config_in(&mut tx).await?.effective;
         let Some(runtime) = &config.notifications.runtime else {
-            tx.commit().await?;
+            crate::database::commit(tx, &self.pool, "claim_delivery").await?;
             return Ok(None);
         };
         let rows=sqlx::query("SELECT d.*,e.kind,e.payload FROM notification_deliveries d JOIN outbox_events e ON e.id=d.event_id WHERE d.status IN ('pending','retry') AND d.next_attempt_at<=$1 ORDER BY d.next_attempt_at,d.id LIMIT 100 FOR UPDATE OF d SKIP LOCKED").bind(now).fetch_all(&mut *tx).await?;
@@ -280,7 +300,7 @@ impl PgRepository {
                 continue;
             }
             if let Some(job_id) = message.0.job_id {
-                let current = self.job(job_id).await?;
+                let current = self.job_in(&mut tx, job_id).await?;
                 if current.evaluation.config_revision != config.revision {
                     sqlx::query("UPDATE notification_deliveries SET error='waiting for evaluation under current config',next_attempt_at=$2 WHERE id=$1").bind(id).bind(now+chrono::Duration::seconds(2)).execute(&mut *tx).await?;
                     continue;
@@ -357,7 +377,7 @@ impl PgRepository {
             let attempts = row.try_get::<i32, _>("attempts")? + 1;
             sqlx::query("UPDATE notification_deliveries SET status='sending',attempts=$2,owner=$3,lease_until=$4,budget_date=$5,channel_id=$6,message=$7,error=NULL WHERE id=$1")
                 .bind(id).bind(attempts).bind(owner).bind(now+chrono::Duration::seconds(runtime.delivery_lease_seconds as i64)).bind(date).bind(&channel).bind(Json(&message.0)).execute(&mut *tx).await?;
-            tx.commit().await?;
+            crate::database::commit(tx, &self.pool, "claim_delivery").await?;
             return Ok(Some(Claimed {
                 id,
                 owner,
@@ -368,7 +388,7 @@ impl PgRepository {
                 config,
             }));
         }
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "claim_delivery").await?;
         Ok(None)
     }
     pub async fn deliver_one(
@@ -394,7 +414,7 @@ impl PgRepository {
                 "provider_configuration_changed",
             )),
         };
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin("deliver_one").await?;
         let current=sqlx::query("SELECT id FROM notification_deliveries WHERE id=$1 AND owner=$2 AND status='sending' FOR UPDATE").bind(claim.id).bind(claim.owner).fetch_optional(&mut *tx).await?;
         if current.is_none() {
             return Ok(true);
@@ -451,7 +471,7 @@ impl PgRepository {
             }
         }
         sqlx::query("UPDATE outbox_events e SET processed_at=$1 WHERE processed_at IS NULL AND EXISTS(SELECT 1 FROM notification_deliveries d WHERE d.event_id=e.id) AND NOT EXISTS(SELECT 1 FROM notification_deliveries d WHERE d.event_id=e.id AND d.status IN ('pending','retry','sending'))").bind(now).execute(&mut *tx).await?;
-        tx.commit().await?;
+        crate::database::commit(tx, &self.pool, "deliver_one").await?;
         Ok(true)
     }
 }

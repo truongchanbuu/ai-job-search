@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/radar-domain", "crates/radar-application", "crates/radar-adapters", "apps/radar-server", "apps/radar-tui"]
+members = ["crates/radar-domain", "crates/radar-application", "crates/radar-adapters", "apps/radar-server", "apps/radar-tui", "apps/radar-launcher"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,7 +19,7 @@ anyhow = "1"
 radar-domain = { path = "crates/radar-domain" }
 radar-application = { path = "crates/radar-application" }
 radar-adapters = { path = "crates/radar-adapters" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net", "process", "io-util"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "migrate", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

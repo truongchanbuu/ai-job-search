@@ -32,6 +32,11 @@ rust/
 
 ## Rules
 
+The owner has also authorized a local HTML/CSS/JS client, served as embedded
+assets by Axum. It uses the same authenticated application services as Ratatui;
+see [web interface and browser security](../plan/web-ui.md). No separate JS
+backend or cloud deployment is introduced.
+
 - Domain does not import Axum, SQLx, Discord SDK or MCP internals.
 - Worker and API can start in one server binary for MVP. Use a DB lock / unique run ID to avoid overlapping schedules.
 - Bot endpoints enqueue work; they do not execute long AI tasks synchronously.

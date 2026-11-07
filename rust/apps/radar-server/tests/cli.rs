@@ -178,3 +178,37 @@ fn database_connection_timeout_is_validated_before_connecting() {
         assert!(!error.contains("synthetic@"));
     }
 }
+
+#[test]
+fn read_only_database_check_has_bounded_startup_failure_and_redacted_diagnostics() {
+    let config = config_fixture::directory();
+    let start = std::time::Instant::now();
+    let output = binary(config.path())
+        .args(["db-check", "--reads", "1"])
+        .env(
+            "RADAR_DATABASE_URL",
+            "postgres://private-user:PRIVATE_PASSWORD@127.0.0.1:1/missing",
+        )
+        .env("RADAR_DATABASE_ACQUIRE_TIMEOUT_SECONDS", "1")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(start.elapsed() < std::time::Duration::from_secs(4));
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("startup_connect"));
+    assert!(error.contains("connection_io"));
+    assert!(error.contains("retry_count"));
+    assert!(!error.contains("PRIVATE_PASSWORD"));
+    assert!(!error.contains("postgres://"));
+    let invalid = binary(config.path())
+        .arg("db-check")
+        .env(
+            "RADAR_DATABASE_URL",
+            "postgres://private:PRIVATE_PASSWORD@localhost/missing",
+        )
+        .env("RADAR_DATABASE_MAX_CONNECTIONS", "0")
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("RADAR_DATABASE_MAX_CONNECTIONS"));
+}

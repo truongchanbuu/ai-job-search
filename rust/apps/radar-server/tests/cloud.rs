@@ -4222,3 +4222,320 @@ async fn proposal_template_selection_is_explicit_versioned_grounded_and_preserve
     );
     server.cleanup().await;
 }
+
+#[tokio::test]
+#[ignore = "requires RADAR_TEST_DATABASE_URL"]
+async fn feedback_and_scheduler_complete_with_one_connection_without_nested_pool_acquisition() {
+    let server = TestServer::new().await;
+    server.client.import(&mock()).await.unwrap();
+    let job = server
+        .client
+        .jobs(&Default::default())
+        .await
+        .unwrap()
+        .items
+        .remove(0);
+    let options = PgConnectOptions::from_str(&server.db.url)
+        .unwrap()
+        .disable_statement_logging()
+        .options([("search_path", server.db.schema.clone())]);
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_millis(300))
+        .connect_with(options)
+        .await
+        .unwrap();
+    let repository = PgRepository::new(pool.clone());
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        repository.feedback(
+            job.id,
+            feedback(job.revision, FeedbackAction::Save),
+            "owner",
+        ),
+    )
+    .await;
+    let succeeded = matches!(result, Ok(Ok(_)));
+    // A failed/cancelled write must leave no partial feedback or job revision.
+    let count = server.db.count("feedback").await;
+    let claim = tokio::time::timeout(
+        Duration::from_secs(2),
+        repository.claim_scan(chrono::Utc::now()),
+    )
+    .await;
+    let claim_succeeded = matches!(claim, Ok(Ok(_)));
+    let config = repository.config().await.unwrap();
+    let mut radar = config.effective.radar;
+    radar.ai.runtime.as_mut().unwrap().enabled = true;
+    repository
+        .update_config(
+            ConfigUpdate {
+                expected_revision: config.revision,
+                radar: Some(radar),
+                scoring: None,
+                notifications: None,
+            },
+            "owner",
+        )
+        .await
+        .unwrap();
+    let current = repository.job(job.id).await.unwrap();
+    let profile = load_profile(&root().join("rust/fixtures/profiles")).unwrap();
+    let admission = tokio::time::timeout(
+        Duration::from_secs(2),
+        repository.begin_ai(
+            job.id,
+            radar_application::ai::TaskKind::Evaluate,
+            phase5_request(current.revision, None),
+            &profile,
+        ),
+    )
+    .await;
+    let ai_succeeded = matches!(admission, Ok(Ok(_)));
+    pool.close().await;
+    server.cleanup().await;
+    assert!(
+        succeeded,
+        "feedback exhausted its own one-connection pool (nested acquisition); rows={count}"
+    );
+    assert_eq!(count, 1);
+    assert!(
+        ai_succeeded,
+        "AI admission acquired another pool connection while holding its transaction"
+    );
+    assert!(
+        claim_succeeded,
+        "scheduler claim tried to acquire a second connection inside its transaction"
+    );
+}
+
+struct DatabaseProxy {
+    port: u16,
+    online: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    connections: std::sync::Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
+    task: JoinHandle<()>,
+}
+impl DatabaseProxy {
+    async fn new(url: &str) -> Self {
+        let url = url::Url::parse(url).unwrap();
+        assert!(
+            matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")),
+            "fault injection is restricted to isolated loopback PostgreSQL"
+        );
+        let target = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(5432));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let online = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let connections = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let allowed = online.clone();
+        let tasks = connections.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut incoming, _)) = listener.accept().await else {
+                    break;
+                };
+                if !allowed.load(std::sync::atomic::Ordering::SeqCst) {
+                    drop(incoming);
+                    continue;
+                }
+                let target = target.clone();
+                let handle = tokio::spawn(async move {
+                    if let Ok(mut upstream) = tokio::net::TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut incoming, &mut upstream).await;
+                    }
+                });
+                let mut tasks = tasks.lock().unwrap();
+                tasks.retain(|h: &JoinHandle<()>| !h.is_finished());
+                tasks.push(handle);
+            }
+        });
+        Self {
+            port,
+            online,
+            connections,
+            task,
+        }
+    }
+    fn cut(&self) {
+        self.online
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        for task in self.connections.lock().unwrap().drain(..) {
+            task.abort();
+        }
+    }
+    fn restore(&self) {
+        self.online.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl Drop for DatabaseProxy {
+    fn drop(&mut self) {
+        self.cut();
+        self.task.abort();
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated loopback RADAR_TEST_DATABASE_URL"]
+async fn database_faults_return_controlled_503_and_recover_without_duplicate_or_partial_writes() {
+    use radar_adapters::database::{PoolSettings, classify, probe};
+    let db = Database::new().await;
+    let proxy = DatabaseProxy::new(&db.url).await;
+    let options = PgConnectOptions::from_str(&db.url)
+        .unwrap()
+        .host("127.0.0.1")
+        .port(proxy.port)
+        .options([("search_path", db.schema.clone())])
+        .disable_statement_logging();
+    let settings = PoolSettings {
+        max_connections: 2,
+        acquire_timeout: Duration::from_millis(250),
+        idle_timeout: Duration::from_millis(150),
+        max_lifetime: Duration::from_millis(500),
+    };
+    let pool = settings.options().connect_lazy_with(options);
+    let repository = PgRepository::new(pool.clone());
+    repository.initialize(&base()).await.unwrap();
+    let state = AppState::new(
+        repository.clone(),
+        load_profile(&root().join("rust/fixtures/profiles")).unwrap(),
+        OWNER,
+        None,
+    )
+    .unwrap();
+    let worker_state = state.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let serving = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let http = reqwest::Client::new();
+    let ready = || http.get(format!("{url}/health/ready")).send();
+    assert!(ready().await.unwrap().status().is_success());
+    let old_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(650)).await;
+    let new_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_ne!(old_pid, new_pid, "expired idle sessions should be retired");
+    sqlx::query("CREATE TABLE reliability_marker(id UUID PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let retained = Uuid::new_v4();
+    sqlx::query("INSERT INTO reliability_marker VALUES($1)")
+        .bind(retained)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // A slow query consumes one slot; another checked-out connection exhausts this small pool.
+    let held = pool.acquire().await.unwrap();
+    let slow_pool = pool.clone();
+    let (started, wait) = tokio::sync::oneshot::channel();
+    let slow = tokio::spawn(async move {
+        let mut connection = slow_pool.acquire().await.unwrap();
+        let _ = started.send(());
+        sqlx::query("SELECT pg_sleep(0.8)")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+    });
+    wait.await.unwrap();
+    let response = ready().await.unwrap();
+    assert_eq!(response.status(), 503);
+    assert!(response.headers().contains_key("x-request-id"));
+    let body = response.text().await.unwrap();
+    assert!(body.contains("database_unavailable"));
+    assert!(!body.contains("postgres://"));
+    assert!(
+        http.get(format!("{url}/health/live"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    slow.await.unwrap();
+    drop(held);
+    assert!(ready().await.unwrap().status().is_success());
+    // Interrupt an uncommitted write. It is not replayed automatically.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO reliability_marker VALUES($1)")
+        .bind(Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    proxy.cut();
+    assert!(tx.commit().await.is_err());
+    assert_eq!(ready().await.unwrap().status(), 503);
+    assert!(
+        http.get(format!("{url}/health/live"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    let mut offline_url = url::Url::parse(&db.url).unwrap();
+    offline_url.set_host(Some("127.0.0.1")).unwrap();
+    offline_url.set_port(Some(proxy.port)).unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        radar_adapters::database::connect(offline_url.as_str(), &settings)
+            .await
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+    proxy.restore();
+    assert!(ready().await.unwrap().status().is_success());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM reliability_marker")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "no partial write, duplicate replay or data loss");
+    for _ in 0..8 {
+        probe(&pool).await.unwrap();
+    }
+    // Query/schema errors are application failures, not connection outages.
+    let error = sqlx::query("SELECT nonexistent_column FROM reliability_marker")
+        .execute(&pool)
+        .await
+        .unwrap_err();
+    assert!(!classify(&error).unavailable);
+    // Closing/cancelling a bounded acquisition must release its waiter and permit future work.
+    let first = pool.acquire().await.unwrap();
+    let second = pool.acquire().await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), probe(&pool))
+            .await
+            .is_err()
+    );
+    drop(first);
+    drop(second);
+    probe(&pool).await.unwrap();
+    let (tick, response) = tokio::join!(
+        radar_server::workers::tick(&worker_state, chrono::Utc::now()),
+        ready()
+    );
+    tick.unwrap();
+    assert!(response.unwrap().status().is_success());
+    proxy.cut();
+    let (shutdown, receiver) = tokio::sync::watch::channel(false);
+    let worker = tokio::spawn(radar_server::workers::run(worker_state, receiver));
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    shutdown.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), worker)
+        .await
+        .unwrap()
+        .unwrap();
+    proxy.restore();
+    probe(&pool).await.unwrap();
+    serving.abort();
+    let _ = serving.await;
+    pool.close().await;
+    assert!(pool.is_closed());
+    let error = pool.acquire().await.unwrap_err();
+    assert_eq!(classify(&error).category, "pool_closed");
+    db.cleanup().await;
+}
