@@ -129,7 +129,9 @@ impl PgRepository {
         };
         if settings.enabled {
             let slots = scan_slots(&config.effective, after, now);
-            if let Some(slot) = slots.last() {
+            if config.effective.radar.job_sources.mock.enabled
+                && let Some(slot) = slots.last()
+            {
                 let key = format!("mock:scheduled:{slot}");
                 sqlx::query("INSERT INTO scan_runs(id,run_key,origin,scheduled_at) VALUES ($1,$2,'scheduled',$3) ON CONFLICT(run_key) DO NOTHING")
                     .bind(Uuid::new_v4()).bind(key).bind(slot).execute(&mut *tx).await?;
