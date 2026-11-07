@@ -184,6 +184,16 @@ struct Budget {
     #[serde(default)]
     failures: u32,
 }
+#[derive(Debug, Clone)]
+pub struct QuotaSnapshot {
+    pub minute_used: u32,
+    pub hour_used: u32,
+    pub day_used: u32,
+    pub minute_reset_at: i64,
+    pub hour_reset_at: i64,
+    pub day_reset_at: i64,
+    pub blocked_until: Option<i64>,
+}
 impl PrivateState {
     pub fn reserve(&self, s: &UpworkSettings, now: i64) -> Result<(), UpworkError> {
         let mut b: Budget = self.read("budget.enc")?.unwrap_or_default();
@@ -216,6 +226,22 @@ impl PrivateState {
         b.h += 1;
         b.d += 1;
         self.write("budget.enc", &b)
+    }
+
+    pub fn quota_snapshot(&self, now: i64) -> Result<QuotaSnapshot, UpworkError> {
+        let budget: Budget = self.read("budget.enc")?.unwrap_or_default();
+        let minute = now.div_euclid(60);
+        let hour = now.div_euclid(3600);
+        let day = now.div_euclid(86400);
+        Ok(QuotaSnapshot {
+            minute_used: if budget.minute == minute { budget.m } else { 0 },
+            hour_used: if budget.hour == hour { budget.h } else { 0 },
+            day_used: if budget.day == day { budget.d } else { 0 },
+            minute_reset_at: (minute + 1) * 60,
+            hour_reset_at: (hour + 1) * 3600,
+            day_reset_at: (day + 1) * 86400,
+            blocked_until: (budget.blocked_until > now).then_some(budget.blocked_until),
+        })
     }
     pub fn reset_backoff(&self) -> Result<(), UpworkError> {
         let mut budget: Budget = self.read("budget.enc")?.unwrap_or_default();

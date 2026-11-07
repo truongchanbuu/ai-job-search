@@ -270,4 +270,18 @@ pub struct UpworkStatus {
     pub filters_ignored: Vec<String>,
     pub skills_filtered_client_side: bool,
     pub retry_after_seconds: Option<u64>,
+    pub quota: Option<UpworkQuota>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpworkQuota {
+    pub minute_used: u32,
+    pub minute_limit: u32,
+    pub minute_reset_at: DateTime<Utc>,
+    pub hour_used: u32,
+    pub hour_limit: u32,
+    pub hour_reset_at: DateTime<Utc>,
+    pub day_used: u32,
+    pub day_limit: u32,
+    pub day_reset_at: DateTime<Utc>,
+    pub blocked_until: Option<DateTime<Utc>>,
 }

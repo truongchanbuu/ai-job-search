@@ -163,6 +163,7 @@ impl PgRepository {
             filters_ignored: stats.filters_ignored.clone(),
             skills_filtered_client_side: stats.skills_filtered_client_side,
             retry_after_seconds: stats.retry_after_seconds,
+            quota: None,
         };
         sqlx::query("UPDATE upwork_source_state SET snapshot=$1 WHERE singleton=true")
             .bind(Json(view))
@@ -227,6 +228,28 @@ impl PgRepository {
         if let Some(s) = &config.effective.radar.job_sources.upwork_mcp.runtime {
             match PrivateState::from_settings(s) {
                 Ok(state) => {
+                    if let Ok(quota) = state.quota_snapshot(chrono::Utc::now().timestamp()) {
+                        view.quota = Some(UpworkQuota {
+                            minute_used: quota.minute_used,
+                            minute_limit: s.max_requests_per_minute,
+                            minute_reset_at: chrono::DateTime::from_timestamp(
+                                quota.minute_reset_at,
+                                0,
+                            )
+                            .unwrap_or_else(chrono::Utc::now),
+                            hour_used: quota.hour_used,
+                            hour_limit: s.max_requests_per_hour,
+                            hour_reset_at: chrono::DateTime::from_timestamp(quota.hour_reset_at, 0)
+                                .unwrap_or_else(chrono::Utc::now),
+                            day_used: quota.day_used,
+                            day_limit: s.max_requests_per_day,
+                            day_reset_at: chrono::DateTime::from_timestamp(quota.day_reset_at, 0)
+                                .unwrap_or_else(chrono::Utc::now),
+                            blocked_until: quota
+                                .blocked_until
+                                .and_then(|at| chrono::DateTime::from_timestamp(at, 0)),
+                        });
+                    }
                     let account = state
                         .read::<crate::upwork::Account>("account.enc")
                         .ok()
