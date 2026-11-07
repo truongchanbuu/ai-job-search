@@ -1,5 +1,5 @@
 use super::*;
-use radar_application::scheduling::{next_scan, scan_slots};
+use radar_application::scheduling::{interval_slots, next_scan, scan_slots};
 use radar_domain::Mode;
 
 async fn coordination_lock(tx: &mut Transaction<'_, Postgres>) -> Result<bool> {
@@ -93,6 +93,14 @@ impl PgRepository {
         })
     }
     pub async fn plan_scans(&self, now: DateTime<Utc>) -> Result<()> {
+        self.plan_scans_with_startup(now, Uuid::nil()).await
+    }
+
+    pub async fn plan_scans_with_startup(
+        &self,
+        now: DateTime<Utc>,
+        startup_token: Uuid,
+    ) -> Result<()> {
         let mut tx = self.begin("plan_scans").await?;
         if !coordination_lock(&mut tx).await? {
             return Ok(());
@@ -111,6 +119,7 @@ impl PgRepository {
         sqlx::query("UPDATE scan_runs SET status='failed',owner=NULL,lease_until=NULL,completed_at=$1,error='interrupted manual Upwork run; trigger a new manual scan' WHERE source='upwork' AND status='running' AND lease_until<=$1").bind(now).execute(&mut *tx).await?;
         sqlx::query("UPDATE scan_runs SET status='pending',owner=NULL,lease_until=NULL,error='interrupted run recovered' WHERE source='mock' AND status='running' AND lease_until<=$1").bind(now).execute(&mut *tx).await?;
         let previous = state.try_get::<Option<DateTime<Utc>>, _>("planned_through")?;
+        let previous_startup = state.try_get::<Option<String>, _>("last_startup_token")?;
         let revision = state.try_get::<Option<i64>, _>("config_revision")?;
         let floor = now - chrono::Duration::minutes(i64::from(settings.catch_up_minutes));
         let after = if revision.is_some_and(|r| r != config.revision) {
@@ -133,12 +142,45 @@ impl PgRepository {
                 )
                 .await?;
             }
+
+            // Upwork polling is never implicit. It is planned only after the
+            // operator explicitly selects the opted-in execution mode.
+            if let Some(upwork) = &config.effective.radar.job_sources.upwork_mcp.runtime
+                && config.effective.radar.job_sources.upwork_mcp.enabled
+                && upwork.execution_mode == "opted_in"
+            {
+                if upwork.scan_on_start
+                    && startup_token != Uuid::nil()
+                    && previous_startup.as_deref() != Some(&startup_token.to_string())
+                {
+                    let profile = upwork.default_profile.clone();
+                    sqlx::query("INSERT INTO scan_runs(id,run_key,origin,scheduled_at,source,search_profile) VALUES ($1,$2,'scheduled',$3,'upwork',$4) ON CONFLICT(run_key) DO NOTHING")
+                        .bind(Uuid::new_v4())
+                        .bind(format!("upwork:startup:{startup_token}"))
+                        .bind(now)
+                        .bind(profile)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+                if let Some(minutes) = upwork.scan_interval_minutes
+                    && let Some(slot) = interval_slots(after, now, minutes, false).last()
+                {
+                    sqlx::query("INSERT INTO scan_runs(id,run_key,origin,scheduled_at,source,search_profile) VALUES ($1,$2,'scheduled',$3,'upwork',$4) ON CONFLICT(run_key) DO NOTHING")
+                        .bind(Uuid::new_v4())
+                        .bind(format!("upwork:interval:{}", slot.timestamp()))
+                        .bind(slot)
+                        .bind(upwork.default_profile.clone())
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
         }
         sqlx::query(
-            "UPDATE scheduler_state SET planned_through=$1,config_revision=$2 WHERE singleton=true",
+            "UPDATE scheduler_state SET planned_through=$1,config_revision=$2,last_startup_token=CASE WHEN $3::uuid = '00000000-0000-0000-0000-000000000000'::uuid THEN last_startup_token ELSE $3::text END WHERE singleton=true",
         )
         .bind(now)
         .bind(config.revision)
+        .bind(startup_token)
         .execute(&mut *tx)
         .await?;
         crate::database::commit(tx, &self.pool, "plan_scans").await?;

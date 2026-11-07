@@ -18,7 +18,10 @@ pub async fn tick(state: &AppState, now: DateTime<Utc>) -> Result<(), StoreError
 async fn tick_inner(state: &AppState, now: DateTime<Utc>) -> Result<(), StoreError> {
     state.refresh_config().await?;
     sqlx::query("INSERT INTO worker_heartbeats(id,last_seen) VALUES ($1,$2) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen").bind(state.worker_id).bind(now).execute(&state.repository.pool).await?;
-    state.repository.plan_scans(now).await?;
+    state
+        .repository
+        .plan_scans_with_startup(now, state.worker_id)
+        .await?;
     if let Some((id, owner)) = state.repository.claim_scan(now).await? {
         state
             .repository

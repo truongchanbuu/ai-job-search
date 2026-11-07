@@ -23,7 +23,7 @@ Read the [BRD](BRD.md), then change only the smallest file that owns your concer
 - [Scoring standard](standards/scoring.md) · [Proposal standard](standards/proposals.md) · [Editing conventions](standards/documentation.md)
 - [Phases](plan/roadmap.md) · [Acceptance tests](plan/acceptance.md) · [Official references](references.md)
 
-- [Phase 4 manual Upwork MCP](plan/upwork-mcp.md) — live authentication/search verification pending
+- [Phase 4 read-only Upwork MCP](plan/upwork-mcp.md) — manual by default; scheduled polling requires explicit opt-in
 - [Phase 3 scheduling and outbox](plan/background.md) · [Discord setup](plan/discord-setup.md)
 - [Phase 2 cloud sync and terminal UI](plan/cloud-sync.md) · [Database reliability](plan/database-reliability.md)
 - [Phase 0–1 local core](plan/local-core.md) · [Follow-on backlog](plan/backlog.md)

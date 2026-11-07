@@ -1,4 +1,4 @@
-# Phase 4 — manual, read-only Upwork MCP
+# Phase 4 — read-only Upwork MCP
 
 Radar uses the official `https://mcp.upwork.com/mcp` endpoint through the Rust
 MCP SDK (`rmcp` 3.8, Streamable HTTP). There is no scraping, private API,
@@ -36,6 +36,34 @@ See the [official MCP client documentation](https://learn.chatgpt.com/docs/exten
 This authenticates **Codex only**. Radar does not read its credential store,
 configuration, browser session or cookies. No Codex/Claude configuration was
 modified by this implementation.
+
+## Optional scheduled searches
+
+The default remains `execution_mode: manual`. After Radar-owned OAuth,
+account selection, discovery and the read-only binding have all been verified,
+the owner may explicitly opt in to bounded searches while the server is
+running:
+
+```yaml
+job_sources:
+  upwork_mcp:
+    enabled: true
+    runtime:
+      execution_mode: opted_in
+      scan_on_start: true
+      scan_interval_minutes: 60
+```
+
+`scan_on_start` queues one run for each server process start, and the interval
+is aligned to stable UTC slots so scheduler ticks and restarts cannot duplicate
+a run for the same process/start token.
+The existing work mode, daily quotas, request budgets, pause/resume controls,
+rate-limit backoff and idempotent import ledger still apply. Missing or expired
+credentials cause a visible failed run with `reauthorization_required`; the
+server never falls back to another credential or silently enables polling.
+Set `execution_mode: manual` (or disable the source) to return to on-demand
+searches. This is an explicit local opt-in; it is not a claim that Upwork
+permits unattended cloud automation.
 
 ## Radar-owned OAuth and private state
 

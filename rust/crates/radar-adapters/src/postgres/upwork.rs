@@ -137,7 +137,15 @@ impl PgRepository {
     ) -> Result<()> {
         let view = UpworkStatus {
             enabled: config.effective.radar.job_sources.upwork_mcp.enabled,
-            execution_mode: "manual_only".into(),
+            execution_mode: config
+                .effective
+                .radar
+                .job_sources
+                .upwork_mcp
+                .runtime
+                .as_ref()
+                .map(|s| s.execution_mode.clone())
+                .unwrap_or_else(|| "manual".into()),
             connection: "last_search_succeeded; no persistent connection".into(),
             authentication: "authenticated_at_last_search".into(),
             account_selected: true,
@@ -170,6 +178,15 @@ impl PgRepository {
     ) -> Result<()> {
         let mut view = self.upwork_status().await?;
         view.enabled = config.effective.radar.job_sources.upwork_mcp.enabled;
+        view.execution_mode = config
+            .effective
+            .radar
+            .job_sources
+            .upwork_mcp
+            .runtime
+            .as_ref()
+            .map(|s| s.execution_mode.clone())
+            .unwrap_or_else(|| "manual".into());
         view.connection = "disconnected".into();
         // Only application-owned structured categories reach this path; never upstream error prose.
         let category = match error {

@@ -78,6 +78,32 @@ pub fn next_scan(config: &Config, after: DateTime<Utc>) -> Option<DateTime<Utc>>
         .into_iter()
         .next()
 }
+
+/// Returns bounded UTC slots for an explicitly opted-in Upwork interval.
+/// Slots are aligned to the Unix epoch so restarts cannot create duplicate runs.
+pub fn interval_slots(
+    after: DateTime<Utc>,
+    until: DateTime<Utc>,
+    interval_minutes: u32,
+    include_start: bool,
+) -> Vec<DateTime<Utc>> {
+    let interval = i64::from(interval_minutes) * 60;
+    if interval <= 0 || until <= after {
+        return vec![];
+    }
+    let mut seconds = until.timestamp().div_euclid(interval) * interval;
+    let mut slots = Vec::new();
+    while seconds > after.timestamp() && seconds <= until.timestamp() {
+        if let Some(slot) = DateTime::<Utc>::from_timestamp(seconds, 0)
+            && (include_start || slot > after)
+        {
+            slots.push(slot);
+        }
+        seconds -= interval;
+    }
+    slots.sort();
+    slots
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +139,20 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    #[test]
+    fn interval_slots_are_restart_stable_and_bounded() {
+        let after = "2026-11-07T00:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let until = "2026-11-07T02:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let slots = interval_slots(after, until, 60, false);
+        assert_eq!(
+            slots,
+            vec![
+                "2026-11-07T01:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+                "2026-11-07T02:00:00Z".parse::<DateTime<Utc>>().unwrap()
+            ]
+        );
+        assert_eq!(interval_slots(after, until, 60, false), slots);
     }
 }

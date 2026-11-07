@@ -121,8 +121,19 @@ pub struct UpworkSettings {
     pub max_pages_per_scan: u32,
     pub max_results_per_scan: u32,
     pub retry_backoff_seconds: u64,
+    /// Automatic searches are opt-in. `manual` preserves the safe default.
+    #[serde(default = "default_upwork_execution_mode")]
+    pub execution_mode: String,
+    #[serde(default)]
+    pub scan_on_start: bool,
+    #[serde(default)]
+    pub scan_interval_minutes: Option<u32>,
     pub default_profile: String,
     pub profiles: BTreeMap<String, UpworkSearch>,
+}
+
+fn default_upwork_execution_mode() -> String {
+    "manual".into()
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -511,6 +522,22 @@ impl Config {
                     && (1..=100).contains(&u.max_results_per_scan)
                     && (1..=3600).contains(&u.retry_backoff_seconds),
                 "invalid conservative Upwork request limits"
+            );
+            ensure!(
+                matches!(u.execution_mode.as_str(), "manual" | "opted_in"),
+                "Upwork execution_mode must be manual or opted_in"
+            );
+            if let Some(minutes) = u.scan_interval_minutes {
+                ensure!(
+                    (15..=1440).contains(&minutes),
+                    "invalid Upwork scan interval"
+                );
+            }
+            ensure!(
+                u.execution_mode == "manual"
+                    || u.scan_on_start
+                    || u.scan_interval_minutes.is_some(),
+                "opted_in Upwork mode needs scan_on_start or scan_interval_minutes"
             );
             ensure!(
                 u.profiles.contains_key(&u.default_profile),
